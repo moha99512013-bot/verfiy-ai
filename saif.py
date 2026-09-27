@@ -3,7 +3,7 @@ import io
 import base64
 import hashlib
 from datetime import datetime
-
+from openai import OpenAI
 import streamlit as st
 from PIL import Image, ImageChops, ImageEnhance
 from openai import OpenAI
