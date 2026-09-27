@@ -755,4 +755,3 @@ if st.session_state.page == "الرئيسية":
                 st.session_state.messages.append(
                     {
                         "role": "assistant",
-                        "
