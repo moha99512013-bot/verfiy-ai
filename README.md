@@ -1,1 +1,3 @@
-# verfiy-ai
+streamlit
+openai
+Pillow
