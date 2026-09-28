@@ -1,5 +1,3 @@
-verfiy-ai
-├── saif.py
-├── requirements.txt
-├── README.md
-└── __pycache__
+streamlit
+openai
+Pillow
