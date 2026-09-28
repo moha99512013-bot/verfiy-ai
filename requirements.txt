@@ -1,0 +1,5 @@
+verfiy-ai
+├── saif.py
+├── requirements.txt
+├── README.md
+└── __pycache__
