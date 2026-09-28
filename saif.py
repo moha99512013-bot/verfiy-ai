@@ -2,190 +2,287 @@ import os
 import io
 import base64
 import hashlib
+from datetime import datetime
 
 import streamlit as st
 from PIL import Image, ImageChops, ImageEnhance
 from openai import OpenAI
 
+
+# =========================================================
+# PAGE
+# =========================================================
+
 st.set_page_config(
     page_title="VerifyAI Terminal",
     page_icon="🔎",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
-api_key = os.getenv("OPENAI_API_KEY")
+# =========================================================
+# OPENAI
+# =========================================================
 
-if not api_key:
+API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not API_KEY:
     try:
-        api_key = st.secrets["OPENAI_API_KEY"]
+        API_KEY = st.secrets["OPENAI_API_KEY"]
     except Exception:
-        api_key = None
+        API_KEY = None
 
-client = OpenAI(api_key=api_key) if api_key else None
+client = None
+
+if API_KEY:
+    try:
+        client = OpenAI(api_key=API_KEY)
+    except Exception:
+        client = None
+
+
+# =========================================================
+# CSS
+# =========================================================
+
+st.markdown(
+    """
+    <style>
+
+    /* ---------- MAIN ---------- */
+
+    .stApp {
+        background: #000000 !important;
+        color: #ffffff !important;
+    }
+
+    body,
+    .stApp,
+    .stMarkdown,
+    p,
+    span,
+    label,
+    div,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        color: #ffffff !important;
+    }
+
+    /* ---------- SIDEBAR ---------- */
+
+    [data-testid="stSidebar"] {
+        background: #050505 !important;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #ffffff !important;
+    }
+
+    /* ---------- INPUTS ---------- */
+
+    .stTextInput input,
+    .stTextArea textarea {
+        background: #050505 !important;
+        color: #ffffff !important;
+        border: 1px solid #333333 !important;
+    }
+
+    .stTextInput input::placeholder,
+    .stTextArea textarea::placeholder {
+        color: #888888 !important;
+    }
+
+    /* ---------- BUTTONS ---------- */
+
+    .stButton button {
+        background: #111111 !important;
+        color: #ffffff !important;
+        border: 1px solid #444444 !important;
+        border-radius: 8px !important;
+    }
+
+    .stButton button:hover {
+        border-color: #ffffff !important;
+    }
+
+    /* ---------- FILE UPLOADER ---------- */
+
+    [data-testid="stFileUploader"] {
+        background: #050505 !important;
+        border: 1px dashed #444444 !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stFileUploader"] * {
+        color: #ffffff !important;
+    }
+
+    /* ---------- METRICS ---------- */
+
+    [data-testid="stMetric"] {
+        background: #050505 !important;
+        border: 1px solid #222222 !important;
+        padding: 12px !important;
+        border-radius: 10px !important;
+    }
+
+    /* ---------- CHAT ---------- */
+
+    [data-testid="stChatMessage"] {
+        background: #050505 !important;
+        border: 1px solid #222222 !important;
+    }
+
+    /* ---------- EXPANDERS ---------- */
+
+    [data-testid="stExpander"] {
+        background: #050505 !important;
+        border: 1px solid #222222 !important;
+    }
+
+    /* ---------- ALERTS ---------- */
+
+    [data-testid="stAlert"] * {
+        color: #ffffff !important;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
+# SESSION STATE
+# =========================================================
 
 if "page" not in st.session_state:
     st.session_state.page = "الرئيسية"
 
-if "image" not in st.session_state:
-    st.session_state.image = None
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if "image_name" not in st.session_state:
-    st.session_state.image_name = None
+if "uploaded_bytes" not in st.session_state:
+    st.session_state.uploaded_bytes = None
 
-if "sha" not in st.session_state:
-    st.session_state.sha = None
-
-if "ela" not in st.session_state:
-    st.session_state.ela = None
+if "uploaded_name" not in st.session_state:
+    st.session_state.uploaded_name = None
 
 if "analysis" not in st.session_state:
     st.session_state.analysis = None
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "ela_image" not in st.session_state:
+    st.session_state.ela_image = None
 
-if "ai_calls" not in st.session_state:
-    st.session_state.ai_calls = 0
+if "sha256" not in st.session_state:
+    st.session_state.sha256 = None
 
-
-st.markdown("""
-<style>
-.stApp {
-    background: #070b12;
-    color: #eef3f8;
-}
-
-section[data-testid="stSidebar"] {
-    background: #090e16;
-}
-
-.title {
-    font-size: 28px;
-    font-weight: 800;
-}
-
-.sub {
-    color: #7f8b9b;
-    font-size: 13px;
-    margin-bottom: 20px;
-}
-
-.card {
-    background: #0d141e;
-    border: 1px solid #1c2735;
-    border-radius: 15px;
-    padding: 18px;
-}
-
-.stButton > button {
-    background: #0d141e;
-    color: #dbe4ed;
-    border: 1px solid #253243;
-    border-radius: 10px;
-}
-</style>
-""", unsafe_allow_html=True)
+if "operations" not in st.session_state:
+    st.session_state.operations = []
 
 
-def make_ela(data):
-    original = Image.open(io.BytesIO(data)).convert("RGB")
+# =========================================================
+# FUNCTIONS
+# =========================================================
 
-    buffer = io.BytesIO()
-    original.save(buffer, "JPEG", quality=90)
-
-    compressed = Image.open(
-        io.BytesIO(buffer.getvalue())
-    ).convert("RGB")
-
-    diff = ImageChops.difference(
-        original,
-        compressed
+def add_operation(text):
+    st.session_state.operations.insert(
+        0,
+        {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "text": text,
+        },
     )
 
-    maximum = max(
-        value for _, value in diff.getextrema()
-    ) or 1
 
-    result = ImageEnhance.Brightness(
-        diff
-    ).enhance(255 / maximum)
-
-    output = io.BytesIO()
-    result.save(output, "PNG")
-
-    return output.getvalue()
+def calculate_sha256(data):
+    return hashlib.sha256(data).hexdigest()
 
 
-def save_image(uploaded):
-    data = uploaded.getvalue()
+def create_ela(image, quality=90):
+    """
+    Error Level Analysis.
+    ELA is an indicator and not conclusive proof of manipulation.
+    """
 
-    st.session_state.image = data
-    st.session_state.image_name = uploaded.name
-
-    st.session_state.sha = hashlib.sha256(
-        data
-    ).hexdigest()
-
-    try:
-        st.session_state.ela = make_ela(data)
-    except Exception:
-        st.session_state.ela = None
-
-    st.session_state.analysis = None
-
-
-def analyze_image(question):
-    if client is None:
-        return "⚠️ OpenAI API غير متصل. تأكد من OPENAI_API_KEY."
-
-    if st.session_state.image is None:
-        return "ارفع صورة أولاً."
-
-    if st.session_state.ai_calls >= 15:
-        return "تم الوصول إلى حد 15 طلب AI في هذه الجلسة."
-
-    image = Image.open(
-        io.BytesIO(st.session_state.image)
-    ).convert("RGB")
-
-    image.thumbnail((1600, 1600))
+    image = image.convert("RGB")
 
     buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=quality)
 
-    image.save(
-        buffer,
-        "JPEG",
-        quality=85,
-        optimize=True
+    buffer.seek(0)
+    compressed = Image.open(buffer).convert("RGB")
+
+    diff = ImageChops.difference(image, compressed)
+
+    extrema = diff.getextrema()
+
+    max_diff = max(
+        channel_max
+        for channel_min, channel_max in extrema
     )
 
-    encoded = base64.b64encode(
-        buffer.getvalue()
-    ).decode()
+    if max_diff == 0:
+        max_diff = 1
 
-    data_url = (
-        "data:image/jpeg;base64,"
-        + encoded
+    scale = 255 / max_diff
+
+    ela = ImageEnhance.Brightness(diff).enhance(scale)
+
+    return ela
+
+
+def image_to_data_url(data, mime_type):
+    encoded = base64.b64encode(data).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def analyze_image_with_ai(image_bytes, mime_type):
+    if not client:
+        return (
+            "⚠️ OpenAI API غير متصل.\n\n"
+            "تأكد من إضافة OPENAI_API_KEY في "
+            "Streamlit Cloud → Settings → Secrets."
+        )
+
+    image_url = image_to_data_url(
+        image_bytes,
+        mime_type,
     )
 
     instructions = """
-أنت مساعد للتحليل الجنائي الرقمي للصور.
+أنت مساعد جنائي رقمي لتحليل الصور.
 
-حلل الصورة باللغة العربية.
+حلل الصورة المرفوعة بحذر وقدم تقريرًا واضحًا باللغة العربية.
 
-صف ما يظهر في الصورة.
-اذكر المؤشرات البصرية التي تستحق الفحص.
-لا تحدد هوية الأشخاص.
-لا تقل إن الصورة مزورة بشكل قطعي.
-ELA مؤشر مساعد وليس دليلاً قاطعاً.
-لا تخترع معلومات غير موجودة في الصورة.
+ركز على:
+- الأشياء والأشخاص والمحتوى الظاهر.
+- أي علامات واضحة على التعديل أو التركيب.
+- جودة الصورة والضغط.
+- الاتساق البصري بين المناطق.
+- النصوص أو الشعارات أو العناصر غير المعتادة.
+- حدود ما يمكن إثباته من الصورة.
+
+مهم:
+لا تعتبر ELA أو أي مؤشر بصري دليلًا قاطعًا وحده.
+إذا لم تستطع إثبات شيء، قل بوضوح إنه غير مؤكد.
+
+استخدم العناوين:
+1. الملخص
+2. الملاحظات
+3. مؤشرات التلاعب المحتملة
+4. مستوى الثقة
+5. حدود التحليل
 """
 
     try:
         response = client.responses.create(
-            model=MODEL,
+            model="gpt-5.6-luna",
             instructions=instructions,
             input=[
                 {
@@ -193,315 +290,225 @@ ELA مؤشر مساعد وليس دليلاً قاطعاً.
                     "content": [
                         {
                             "type": "input_text",
-                            "text": question
+                            "text": "حلل هذه الصورة جنائيًا.",
                         },
                         {
                             "type": "input_image",
-                            "image_url": data_url
-                        }
-                    ]
+                            "image_url": image_url,
+                        },
+                    ],
                 }
-            ]
+            ],
         )
 
-        st.session_state.ai_calls += 1
+        return response.output_text
 
-        result = response.output_text.strip()
+    except Exception as e:
+        return (
+            "حدث خطأ أثناء الاتصال بـ OpenAI.\n\n"
+            f"تفاصيل الخطأ: {str(e)}"
+        )
 
-        st.session_state.analysis = result
 
-        return result
-
-    except Exception as error:
-        return "حدث خطأ في OpenAI:\n" + str(error)
-
+# =========================================================
+# SIDEBAR
+# =========================================================
 
 with st.sidebar:
 
     st.markdown(
-        "## 🔎 VerifyAI Terminal"
+        """
+        # 🔎 VerifyAI
+        ### المنصة الوطنية للاستخبارات الجنائية الرقمية
+        """
     )
 
-    st.caption(
-        "المنصة الوطنية للاستخبارات الجنائية الرقمية"
-    )
+    st.divider()
 
     pages = [
-        ("⌂", "الرئيسية"),
-        ("◉", "تحليل المستندات"),
-        ("✦", "المحادثة الذكية"),
-        ("▤", "التقارير"),
-        ("◌", "التحقق من الهوية"),
-        ("◇", "التشفير والأمان"),
-        ("◷", "سجل العمليات"),
-        ("⚙", "الإعدادات")
+        ("🏠", "الرئيسية"),
+        ("📄", "تحليل المستندات"),
+        ("💬", "المحادثة الذكية"),
+        ("📊", "التقارير"),
+        ("🪪", "التحقق من الهوية"),
+        ("🔐", "التشفير والأمان"),
+        ("🕘", "سجل العمليات"),
+        ("⚙️", "الإعدادات"),
     ]
 
-    for icon, name in pages:
-
+    for icon, page_name in pages:
         if st.button(
-            icon + "  " + name,
-            key="nav_" + name,
-            use_container_width=True
+            f"{icon}  {page_name}",
+            use_container_width=True,
+            key=f"nav_{page_name}",
         ):
-            st.session_state.page = name
+            st.session_state.page = page_name
             st.rerun()
 
 
-st.markdown(
-    '<div class="title">VerifyAI Terminal</div>',
-    unsafe_allow_html=True
-)
+# =========================================================
+# HEADER
+# =========================================================
 
 st.markdown(
-    '<div class="sub">المنصة الوطنية للاستخبارات الجنائية الرقمية</div>',
-    unsafe_allow_html=True
+    """
+    <div style="
+        padding: 10px 0 25px 0;
+        border-bottom: 1px solid #222;
+        margin-bottom: 25px;
+    ">
+        <div style="font-size: 30px; font-weight: 700;">
+            🔎 VerifyAI Terminal
+        </div>
+
+        <div style="
+            font-size: 15px;
+            color: #aaaaaa !important;
+            margin-top: 6px;
+        ">
+            المنصة الوطنية للاستخبارات الجنائية الرقمية
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
+
+# =========================================================
+# API STATUS
+# =========================================================
+
+if client:
+    st.success("✓ OpenAI API متصل")
+else:
+    st.warning(
+        "⚠️ OpenAI API غير متصل. "
+        "تأكد من OPENAI_API_KEY في Streamlit Secrets."
+    )
+
+
+# =========================================================
+# HOME
+# =========================================================
 
 if st.session_state.page == "الرئيسية":
 
-    left, right = st.columns(
-        [1.55, 1],
-        gap="large"
+    st.header("تحليل الأدلة الرقمية")
+
+    st.write(
+        "ارفع صورة لتحليلها باستخدام الذكاء الاصطناعي."
     )
 
-    with left:
-
-        st.subheader(
-            "تحليل الأدلة الرقمية"
-        )
-
-        uploaded = st.file_uploader(
-            "ارفع أي صورة",
-            type=[
-                "png",
-                "jpg",
-                "jpeg",
-                "webp"
-            ],
-            key="home_upload"
-        )
-
-        if uploaded is not None:
-            save_image(uploaded)
-
-        if st.session_state.image is not None:
-
-            st.image(
-                st.session_state.image,
-                use_container_width=True
-            )
-
-            st.caption(
-                st.session_state.image_name
-            )
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-
-                if st.button(
-                    "🔎 تحليل الصورة بالـAI",
-                    use_container_width=True
-                ):
-
-                    analyze_image(
-                        "حلل هذه الصورة جنائياً رقمياً."
-                    )
-
-                    st.rerun()
-
-            with c2:
-
-                if st.button(
-                    "🧾 وريني الدليل",
-                    use_container_width=True
-                ):
-
-                    st.markdown(
-                        "### الدليل المرئي"
-                    )
-
-                    st.image(
-                        st.session_state.image,
-                        use_container_width=True
-                    )
-
-                    if st.session_state.ela is not None:
-
-                        st.image(
-                            st.session_state.ela,
-                            use_container_width=True
-                        )
-
-                        st.caption(
-                            "ELA مؤشر مساعد فقط، وليس إثباتاً قاطعاً."
-                        )
-
-            if st.session_state.analysis:
-
-                st.markdown(
-                    "### نتيجة تحليل الـAI"
-                )
-
-                st.markdown(
-                    '<div class="card">'
-                    + st.session_state.analysis.replace(
-                        "\n",
-                        "<br>"
-                    )
-                    + "</div>",
-                    unsafe_allow_html=True
-                )
-
-        else:
-
-            st.info(
-                "ارفع صورة للبدء."
-            )
-
-    with right:
-
-        st.subheader(
-            "المساعد الجنائي الذكي"
-        )
-
-        for message in st.session_state.messages:
-
-            with st.chat_message(
-                message["role"]
-            ):
-                st.markdown(
-                    message["content"]
-                )
-
-        prompt = st.chat_input(
-            "اكتب طلبك هنا..."
-        )
-
-        if prompt:
-
-            st.session_state.messages.append(
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            )
-
-            if (
-                "وريني الدليل" in prompt
-                or "أرني الدليل" in prompt
-                or "show evidence" in prompt.lower()
-            ):
-
-                if st.session_state.image is not None:
-
-                    answer = (
-                        "هذا هو الدليل المرئي "
-                        "من الصورة التي رفعتها."
-                    )
-
-                else:
-
-                    answer = "ارفع صورة أولاً."
-
-            elif st.session_state.image is not None:
-
-                answer = analyze_image(
-                    prompt
-                )
-
-            else:
-
-                answer = "ارفع صورة أولاً."
-
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": answer
-                }
-            )
-
-            st.rerun()
-
-
-elif st.session_state.page == "تحليل المستندات":
-
-    st.subheader(
-        "تحليل المستندات والصور"
-    )
-
-    uploaded = st.file_uploader(
+    uploaded_file = st.file_uploader(
         "ارفع صورة",
         type=[
             "png",
             "jpg",
             "jpeg",
-            "webp"
+            "webp",
         ],
-        key="documents_upload"
     )
 
-    if uploaded is not None:
-        save_image(uploaded)
+    if uploaded_file:
 
-    if st.session_state.image is not None:
+        image_bytes = uploaded_file.getvalue()
 
-        a, b = st.columns(2)
+        st.session_state.uploaded_bytes = image_bytes
+        st.session_state.uploaded_name = uploaded_file.name
+        st.session_state.sha256 = calculate_sha256(
+            image_bytes
+        )
 
-        with a:
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        )
 
-            st.image(
-                st.session_state.image,
-                use_container_width=True
-            )
+        st.image(
+            image,
+            caption=uploaded_file.name,
+            use_container_width=True,
+        )
 
-        with b:
+        st.write(
+            f"SHA-256: `{st.session_state.sha256}`"
+        )
 
-            if st.session_state.ela is not None:
+        col1, col2 = st.columns(2)
 
-                st.image(
-                    st.session_state.ela,
-                    use_container_width=True
+        with col1:
+            if st.button(
+                "🔍 تحليل الصورة بالذكاء الاصطناعي",
+                use_container_width=True,
+            ):
+
+                with st.spinner(
+                    "جاري تحليل الصورة..."
+                ):
+
+                    result = analyze_image_with_ai(
+                        image_bytes,
+                        uploaded_file.type,
+                    )
+
+                st.session_state.analysis = result
+
+                add_operation(
+                    f"تحليل الصورة: {uploaded_file.name}"
                 )
 
-        if st.button(
-            "🔎 تحليل بالذكاء الاصطناعي",
-            use_container_width=True
-        ):
+        with col2:
+            if st.button(
+                "🧾 ورّيني الدليل",
+                use_container_width=True,
+            ):
 
-            analyze_image(
-                "حلل الصورة كدليل رقمي."
-            )
+                ela = create_ela(image)
 
-            st.rerun()
+                st.session_state.ela_image = ela
+
+                add_operation(
+                    f"إنشاء مؤشر ELA: {uploaded_file.name}"
+                )
 
         if st.session_state.analysis:
+
+            st.divider()
+
+            st.subheader("نتيجة التحليل")
+
             st.write(
                 st.session_state.analysis
             )
 
-        st.markdown(
-            "### SHA-256"
-        )
+        if st.session_state.ela_image:
 
-        st.code(
-            st.session_state.sha
-        )
+            st.divider()
 
+            st.subheader(
+                "المؤشر البصري ELA"
+            )
+
+            st.image(
+                st.session_state.ela_image,
+                caption=(
+                    "ELA — مؤشر مساعد وليس دليلًا قاطعًا "
+                    "على التلاعب."
+                ),
+                use_container_width=True,
+            )
+
+
+# =========================================================
+# SMART CHAT
+# =========================================================
 
 elif st.session_state.page == "المحادثة الذكية":
 
-    st.subheader(
-        "المحادثة الذكية"
-    )
+    st.header("💬 المحادثة الذكية")
 
-    if st.session_state.image is not None:
-
-        st.image(
-            st.session_state.image,
-            width=400
+    if not client:
+        st.warning(
+            "OpenAI غير متصل. أضف OPENAI_API_KEY في Secrets."
         )
 
     for message in st.session_state.messages:
@@ -514,7 +521,7 @@ elif st.session_state.page == "المحادثة الذكية":
             )
 
     prompt = st.chat_input(
-        "اسأل عن الصورة..."
+        "اكتب سؤالك هنا..."
     )
 
     if prompt:
@@ -522,131 +529,164 @@ elif st.session_state.page == "المحادثة الذكية":
         st.session_state.messages.append(
             {
                 "role": "user",
-                "content": prompt
+                "content": prompt,
             }
         )
 
-        if st.session_state.image is not None:
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-            answer = analyze_image(
-                prompt
-            )
+        if client:
+
+            try:
+
+                response = client.responses.create(
+                    model="gpt-5.6-luna",
+                    instructions="""
+أنت مساعد VerifyAI للذكاء الجنائي الرقمي.
+أجب بالعربية بشكل واضح ومختصر.
+لا تدّعي أن أي مؤشر بصري وحده يثبت التلاعب.
+""",
+                    input=prompt,
+                )
+
+                answer = response.output_text
+
+            except Exception as e:
+
+                answer = (
+                    "حدث خطأ في OpenAI:\n"
+                    + str(e)
+                )
 
         else:
 
-            answer = "ارفع صورة أولاً."
+            answer = (
+                "⚠️ OpenAI API غير متصل. "
+                "تحقق من OPENAI_API_KEY في Secrets."
+            )
 
         st.session_state.messages.append(
             {
                 "role": "assistant",
-                "content": answer
+                "content": answer,
             }
         )
 
         st.rerun()
 
 
+# =========================================================
+# REPORTS
+# =========================================================
+
 elif st.session_state.page == "التقارير":
 
-    st.subheader(
-        "التقارير"
-    )
+    st.header("📊 التقارير")
 
     if st.session_state.analysis:
 
-        report = (
-            "VerifyAI Terminal\n\n"
-            "الملف: "
-            + str(st.session_state.image_name)
-            + "\n\n"
-            "SHA-256: "
-            + str(st.session_state.sha)
-            + "\n\n"
-            "نتيجة التحليل:\n"
-            + st.session_state.analysis
-        )
+        st.subheader("آخر تحليل")
 
-        st.text_area(
-            "التقرير",
-            report,
-            height=350
-        )
-
-        st.download_button(
-            "⬇️ تحميل التقرير",
-            report,
-            "verifyai_report.txt",
-            "text/plain"
+        st.write(
+            st.session_state.analysis
         )
 
     else:
 
         st.info(
-            "لا يوجد تحليل حتى الآن."
+            "لم يتم إنشاء تقرير بعد."
         )
+
+
+# =========================================================
+# OPERATION LOG
+# =========================================================
+
+elif st.session_state.page == "سجل العمليات":
+
+    st.header("🕘 سجل العمليات")
+
+    if not st.session_state.operations:
+
+        st.info(
+            "لا توجد عمليات حتى الآن."
+        )
+
+    else:
+
+        for operation in st.session_state.operations:
+
+            st.write(
+                f"**{operation['time']}** — "
+                f"{operation['text']}"
+            )
+
+
+# =========================================================
+# OTHER PAGES
+# =========================================================
+
+elif st.session_state.page == "تحليل المستندات":
+
+    st.header("📄 تحليل المستندات")
+
+    st.info(
+        "قسم تحليل المستندات جاهز للإضافة."
+    )
+
+
+elif st.session_state.page == "التحقق من الهوية":
+
+    st.header("🪪 التحقق من الهوية")
+
+    st.info(
+        "قسم التحقق من الهوية جاهز للإضافة."
+    )
 
 
 elif st.session_state.page == "التشفير والأمان":
 
-    st.subheader(
-        "التشفير والأمان"
+    st.header("🔐 التشفير والأمان")
+
+    st.info(
+        "بيانات التحليل الحساسة يجب التعامل معها بأمان."
     )
-
-    if st.session_state.sha:
-
-        st.write(
-            "SHA-256"
-        )
-
-        st.code(
-            st.session_state.sha
-        )
-
-    else:
-
-        st.info(
-            "ارفع صورة أولاً."
-        )
 
 
 elif st.session_state.page == "الإعدادات":
 
-    st.subheader(
-        "الإعدادات"
-    )
+    st.header("⚙️ الإعدادات")
 
     st.write(
-        "Model:",
-        MODEL
-    )
-
-    st.write(
-        "OpenAI API:",
-        "متصل" if client else "غير متصل"
-    )
-
-    st.write(
-        "طلبات AI:",
-        str(st.session_state.ai_calls)
-        + " / 15"
+        "إعدادات VerifyAI Terminal"
     )
 
 
-st.markdown("---")
+# =========================================================
+# FOOTER
+# =========================================================
 
-a, b, c = st.columns(3)
+st.divider()
 
-a.metric(
-    "طلبات AI",
-    st.session_state.ai_calls
-)
+col1, col2, col3 = st.columns(3)
 
-b.metric(
-    "صورة مرفوعة",
-    "نعم" if st.session_state.image else "لا"
-)
+with col1:
+    st.metric(
+        "حالة الذكاء الاصطناعي",
+        "متصل" if client else "غير متصل",
+    )
 
-c.metric(
-    "API",
-    "متصل" if client else "غير متصل"
-)
+with col2:
+    st.metric(
+        "العمليات",
+        len(st.session_state.operations),
+    )
+
+with col3:
+    st.metric(
+        "الصورة الحالية",
+        "مرفوعة"
+        if st.session_state.uploaded_bytes
+        else "لا توجد",
+    )
