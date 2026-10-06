@@ -1,74 +1,43 @@
 import os
 import io
 import base64
-
 import streamlit as st
 from PIL import Image
 from openai import OpenAI
 
-
-# ==============================
-# إعداد الصفحة
-# ==============================
-
 st.set_page_config(
     page_title="VerifyAI Access",
     page_icon="♿",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
+# ---------- OpenAI ----------
+api_key = os.getenv("OPENAI_API_KEY")
 
-# ==============================
-# إعداد OpenAI
-# ==============================
+if not api_key:
+    try:
+        api_key = st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        api_key = None
 
+client = OpenAI(api_key=api_key) if api_key else None
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
+# ---------- State ----------
+if "result" not in st.session_state:
+    st.session_state.result = None
 
-def get_api_key():
-    key = os.getenv("OPENAI_API_KEY")
+if "score" not in st.session_state:
+    st.session_state.score = None
 
-    if key:
-        return key
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    try:
-        return st.secrets["OPENAI_API_KEY"]
-    except Exception:
-        return None
-
-
-API_KEY = get_api_key()
-
-if API_KEY:
-    client = OpenAI(api_key=API_KEY)
-else:
-    client = None
-
-
-# ==============================
-# Session State
-# ==============================
-
-if "analysis_result" not in st.session_state:
-    st.session_state.analysis_result = None
-
-if "analysis_score" not in st.session_state:
-    st.session_state.analysis_score = None
-
-if "chat_messages" not in st.session_state:
-    st.session_state.chat_messages = []
-
-
-# ==============================
-# التصميم
-# ==============================
-
+# ---------- Design ----------
 st.markdown("""
 <style>
-
 .stApp {
-    background-color: #070b12;
+    background: #05070b;
     color: white;
 }
 
@@ -77,552 +46,439 @@ header {
 }
 
 .block-container {
-    max-width: 1400px;
-    padding-top: 30px;
+    max-width: 1050px;
+    padding-top: 25px;
 }
 
-section[data-testid="stSidebar"] {
-    background-color: #090e16;
-    border-right: 1px solid #202936;
+.logo {
+    font-size: 25px;
+    font-weight: 800;
 }
 
-h1, h2, h3, h4, p, label {
-    color: white !important;
+.logo span {
+    color: #8b9cff;
 }
 
-.main-title {
-    font-size: 40px;
-    font-weight: 700;
+.hero {
+    text-align: center;
+    padding: 70px 20px 35px;
 }
 
-.subtitle {
+.hero h1 {
+    font-size: 48px;
+    margin-bottom: 12px;
+}
+
+.hero h1 span {
+    color: #8b9cff;
+}
+
+.hero p {
     color: #9ca8b8 !important;
-    font-size: 16px;
-    margin-bottom: 25px;
+    font-size: 17px;
+    line-height: 1.7;
+    max-width: 650px;
+    margin: auto;
 }
 
-.card {
-    background-color: #0d131d;
-    border: 1px solid #202936;
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 18px;
+.box {
+    background: #0b0f17;
+    border: 1px solid #202938;
+    border-radius: 18px;
+    padding: 25px;
+    margin-top: 20px;
+}
+
+.title {
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.description {
+    color: #8f9aaa !important;
+    font-size: 14px;
 }
 
 .score {
-    font-size: 50px;
+    font-size: 55px;
     font-weight: 800;
     text-align: center;
 }
 
 .good {
-    color: #4ade80 !important;
+    color: #55d98a !important;
 }
 
 .medium {
-    color: #facc15 !important;
+    color: #f0c75e !important;
 }
 
 .bad {
-    color: #f87171 !important;
+    color: #ff6b6b !important;
 }
 
 .stButton > button {
     width: 100%;
-    min-height: 45px;
-    border-radius: 10px;
-    background-color: #111a27;
+    height: 48px;
+    border-radius: 12px;
+    background: #121927;
     color: white;
-    border: 1px solid #2a3747;
+    border: 1px solid #303b4c;
+    font-weight: 600;
 }
 
 .stButton > button:hover {
-    border-color: #66788c;
+    border-color: #8b9cff;
 }
 
 [data-testid="stFileUploader"] {
-    background-color: #0d131d;
-    border: 1px dashed #344355;
-    border-radius: 16px;
+    background: transparent;
+    border: none;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
-
-# ==============================
-# القائمة الجانبية
-# ==============================
-
-with st.sidebar:
-
-    st.markdown("""
-    <div style="font-size:25px;font-weight:700;">
-        ♿ VerifyAI Access
+# ---------- Header ----------
+st.markdown("""
+<div style="display:flex;justify-content:space-between;align-items:center;">
+    <div class="logo">
+        VerifyAI <span>Access</span>
     </div>
 
-    <div style="color:#9ca8b8;">
-        التصميم الشامل بالذكاء الاصطناعي
+    <div style="color:#8f9aaa;font-size:13px;">
+        ● AI Accessibility Assistant
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------- Hero ----------
+st.markdown("""
+<div class="hero">
+
+<h1>
+اجعل العالم <span>أسهل وصولاً</span>
+</h1>
+
+<p>
+ارفع صورة لمكان أو خدمة، وسيستخدم الذكاء الاصطناعي
+لاكتشاف مشاكل الإتاحة واقتراح حلول تجعل التجربة
+أكثر شمولاً واستقلالية.
+</p>
+
+</div>
+""", unsafe_allow_html=True)
+
+# ---------- Upload ----------
+st.markdown("""
+<div class="box">
+
+<div class="title">1. ارفع صورة</div>
+
+<div class="description">
+صورة لمدخل مبنى، مدرسة، شارع، متجر، محطة أو أي مكان تريد تحليله.
+</div>
+
+</div>
+""", unsafe_allow_html=True)
+
+uploaded = st.file_uploader(
+    "اختر صورة",
+    type=["png", "jpg", "jpeg", "webp"],
+    label_visibility="collapsed"
+)
+
+if uploaded:
+
+    try:
+        image = Image.open(uploaded).convert("RGB")
+    except Exception:
+        st.error("الصورة غير صالحة.")
+        st.stop()
+
+    st.image(
+        image,
+        use_container_width=True
+    )
+
+    st.markdown("""
+    <div class="box">
+
+    <div class="title">2. لمن تريد تحسين التجربة؟</div>
+
     </div>
     """, unsafe_allow_html=True)
 
-    st.divider()
-
-    page = st.radio(
-        "الصفحات",
+    need = st.selectbox(
+        "نوع الاحتياج",
         [
-            "الرئيسية",
-            "تحليل الإتاحة",
-            "المحادثة الذكية"
+            "تجربة شاملة للجميع",
+            "الأشخاص ذوو الإعاقة البصرية",
+            "الأشخاص ذوو الإعاقة السمعية",
+            "الأشخاص ذوو الإعاقة الحركية",
+            "الأشخاص الذين يحتاجون معلومات مبسطة"
         ],
         label_visibility="collapsed"
     )
 
-    st.divider()
+    st.write("")
 
-    if client:
-        st.success("● AI متصل")
-    else:
-        st.error("● API غير متصل")
-
-
-# ==============================
-# الرئيسية
-# ==============================
-
-if page == "الرئيسية":
-
-    st.markdown(
-        '<div class="main-title">VerifyAI Access</div>',
-        unsafe_allow_html=True
+    analyze = st.button(
+        "✦ تحليل الصورة بالذكاء الاصطناعي",
+        type="primary"
     )
 
-    st.markdown(
-        """
-        <div class="subtitle">
-        الذكاء الاصطناعي لإعادة تصميم التجارب اليومية
-        لتصبح أكثر إتاحة واستقلالية.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # ---------- Analyze ----------
+    if analyze:
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.markdown("""
-        <div class="card">
-
-        <h3>المشكلة</h3>
-
-        <p>
-        بعض الأماكن والخدمات اليومية لا توفر تجربة مناسبة
-        لجميع الأشخاص ذوي الإعاقة.
-        </p>
-
-        <p>
-        وقد لا يعرف الشخص مسبقًا إذا كان المكان يحتوي
-        على عوائق أو وسائل وصول مناسبة.
-        </p>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-
-        st.markdown("""
-        <div class="card">
-
-        <h3>الحل</h3>
-
-        <p>
-        يتيح VerifyAI Access للمستخدم رفع صورة للمكان
-        ثم يقوم الذكاء الاصطناعي بتحليل إمكانية الوصول.
-        </p>
-
-        <p>
-        ويقدم درجة للإتاحة، ويحدد المشاكل،
-        ويقترح حلولًا عملية.
-        </p>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="card">
-
-    <h3>كيف يعمل النظام؟</h3>
-
-    <p>① يرفع المستخدم صورة للمكان</p>
-    <p>② يحدد نوع الاحتياج</p>
-    <p>③ AI يحلل الصورة</p>
-    <p>④ النظام يحدد العوائق</p>
-    <p>⑤ AI يقترح تحسينات</p>
-
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ==============================
-# تحليل الإتاحة
-# ==============================
-
-elif page == "تحليل الإتاحة":
-
-    st.markdown(
-        '<div class="main-title">تحليل الإتاحة</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        """
-        <div class="subtitle">
-        ارفع صورة للمكان ودع الذكاء الاصطناعي يحلل مدى سهولة الوصول إليه.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    need = st.selectbox(
-        "ما نوع الاحتياج الذي تريد تحليله؟",
-        [
-            "تجربة شاملة",
-            "إعاقة بصرية",
-            "إعاقة سمعية",
-            "إعاقة حركية",
-            "صعوبة في فهم المعلومات"
-        ]
-    )
-
-    uploaded_file = st.file_uploader(
-        "ارفع صورة للمكان",
-        type=["png", "jpg", "jpeg", "webp"]
-    )
-
-    if uploaded_file:
-
-        try:
-            image = Image.open(uploaded_file).convert("RGB")
-        except Exception:
-            st.error("لم نتمكن من قراءة الصورة.")
-            st.stop()
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.image(
-                image,
-                caption="الصورة المرفوعة",
-                use_container_width=True
+        if not client:
+            st.error(
+                "OPENAI_API_KEY غير موجود. أضفه في Secrets ثم أعد تشغيل الموقع."
             )
+        else:
 
-        with col2:
+            with st.spinner("جاري تحليل الصورة..."):
 
-            st.markdown("""
-            <div class="card">
+                try:
 
-            <h3>الصورة جاهزة</h3>
+                    image.thumbnail(
+                        (1600, 1600),
+                        Image.Resampling.LANCZOS
+                    )
 
-            <p>
-            سيقوم AI بتحليل العناصر الظاهرة في الصورة
-            وتحديد مشاكل الإتاحة المحتملة.
-            </p>
+                    buffer = io.BytesIO()
 
-            </div>
-            """, unsafe_allow_html=True)
+                    image.save(
+                        buffer,
+                        format="JPEG",
+                        quality=85
+                    )
 
-            analyze = st.button(
-                "تحليل الصورة بالذكاء الاصطناعي",
-                type="primary"
-            )
+                    encoded = base64.b64encode(
+                        buffer.getvalue()
+                    ).decode("utf-8")
 
-        if analyze:
-
-            if not client:
-
-                st.error(
-                    "OPENAI_API_KEY غير موجود. أضف المفتاح في Secrets أو Environment Variables."
-                )
-
-            else:
-
-                with st.spinner("AI يحلل الصورة..."):
-
-                    try:
-
-                        # تصغير الصورة لتقليل حجم الطلب
-
-                        image.thumbnail(
-                            (1600, 1600),
-                            Image.Resampling.LANCZOS
-                        )
-
-                        buffer = io.BytesIO()
-
-                        image.save(
-                            buffer,
-                            format="JPEG",
-                            quality=85
-                        )
-
-                        image_data = buffer.getvalue()
-
-                        encoded = base64.b64encode(
-                            image_data
-                        ).decode("utf-8")
-
-                        prompt = f"""
+                    prompt = f"""
 أنت خبير في التصميم الشامل وإمكانية الوصول.
+
+حلل الصورة المرفقة.
 
 نوع الاحتياج:
 {need}
 
-حلل الصورة المرفقة بعناية.
-
-لا تخترع معلومات غير موجودة في الصورة.
+لا تخترع أي شيء غير ظاهر في الصورة.
 إذا كان شيء غير واضح، اذكر أنه غير واضح.
 
 أجب باللغة العربية.
 
-أعطني:
+اكتب النتيجة بهذا الشكل:
 
 SCORE:
-درجة من 0 إلى 100.
+رقم من 0 إلى 100.
 
 SUMMARY:
-ملخص مختصر.
+ملخص قصير.
 
-POSITIVE:
-ما الأشياء الموجودة التي تساعد على سهولة الوصول؟
+WHAT_IS_GOOD:
+الأشياء الجيدة الظاهرة.
 
 PROBLEMS:
-ما العوائق أو المشاكل الظاهرة؟
+العوائق أو المشاكل المحتملة.
 
 SOLUTIONS:
-ما الحلول التي يمكن تطبيقها؟
+حلول عملية لتحسين الإتاحة.
 
-AI_IDEA:
-كيف يمكن استخدام الذكاء الاصطناعي لجعل التجربة
-أكثر شمولاً واستقلالية؟
+AI_SOLUTION:
+كيف يمكن استخدام الذكاء الاصطناعي لجعل
+هذه التجربة أكثر شمولاً واستقلالية.
 
 ركز على حلول واقعية وقابلة للتطبيق.
 """
 
-                        response = client.responses.create(
-                            model=MODEL,
-                            input=[
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "input_text",
-                                            "text": prompt
-                                        },
-                                        {
-                                            "type": "input_image",
-                                            "image_url":
-                                                f"data:image/jpeg;base64,{encoded}"
-                                        }
-                                    ]
-                                }
-                            ]
-                        )
+                    response = client.responses.create(
+                        model=MODEL,
+                        input=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": prompt
+                                    },
+                                    {
+                                        "type": "input_image",
+                                        "image_url":
+                                        f"data:image/jpeg;base64,{encoded}"
+                                    }
+                                ]
+                            }
+                        ]
+                    )
 
-                        result = response.output_text
+                    result = response.output_text
 
-                        score = None
+                    score = None
 
-                        for line in result.splitlines():
+                    for line in result.splitlines():
 
-                            if line.strip().upper().startswith("SCORE:"):
+                        if line.strip().upper().startswith("SCORE:"):
 
-                                value = line.split(
-                                    ":",
-                                    1
-                                )[1].strip()
+                            try:
+                                score = int(
+                                    line.split(":", 1)[1].strip()
+                                )
+                            except:
+                                score = None
 
-                                try:
-                                    score = int(value)
-                                except:
-                                    score = None
+                            break
 
-                                break
+                    st.session_state.result = result
+                    st.session_state.score = score
 
-                        st.session_state.analysis_result = result
-                        st.session_state.analysis_score = score
+                except Exception as e:
 
-                    except Exception as e:
+                    st.error(
+                        f"حدث خطأ أثناء التحليل:\n\n{e}"
+                    )
 
-                        st.error(
-                            f"حدث خطأ أثناء تحليل الصورة:\n\n{e}"
-                        )
+# ---------- Result ----------
+if st.session_state.result:
 
-        # عرض النتيجة
+    st.markdown("---")
 
-        if st.session_state.analysis_result:
+    st.markdown(
+        '<div class="title">نتيجة تحليل AI</div>',
+        unsafe_allow_html=True
+    )
 
-            st.divider()
+    score = st.session_state.score
+
+    if score is not None:
+
+        if score >= 75:
+            score_class = "good"
+        elif score >= 50:
+            score_class = "medium"
+        else:
+            score_class = "bad"
+
+        col1, col2 = st.columns([1, 3])
+
+        with col1:
 
             st.markdown(
-                '<div class="main-title" style="font-size:30px;">نتيجة التحليل</div>',
+                f"""
+                <div class="box">
+
+                <div style="text-align:center;color:#8f9aaa;">
+                Accessibility Score
+                </div>
+
+                <div class="score {score_class}">
+                {score}
+                </div>
+
+                <div style="text-align:center;color:#8f9aaa;">
+                من 100
+                </div>
+
+                </div>
+                """,
                 unsafe_allow_html=True
             )
 
-            score = st.session_state.analysis_score
+        with col2:
 
-            if score is not None:
-
-                if score >= 75:
-                    score_class = "good"
-                elif score >= 50:
-                    score_class = "medium"
-                else:
-                    score_class = "bad"
-
-                col1, col2 = st.columns([1, 3])
-
-                with col1:
-
-                    st.markdown(
-                        f"""
-                        <div class="card">
-
-                        <div style="text-align:center;color:#9ca8b8;">
-                        درجة الإتاحة
-                        </div>
-
-                        <div class="score {score_class}">
-                        {score}/100
-                        </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-                with col2:
-
-                    st.markdown(
-                        '<div class="card">',
-                        unsafe_allow_html=True
-                    )
-
-                    st.markdown(
-                        st.session_state.analysis_result
-                    )
-
-                    st.markdown(
-                        '</div>',
-                        unsafe_allow_html=True
-                    )
-
-            else:
-
-                st.markdown(
-                    '<div class="card">',
-                    unsafe_allow_html=True
-                )
-
-                st.markdown(
-                    st.session_state.analysis_result
-                )
-
-                st.markdown(
-                    '</div>',
-                    unsafe_allow_html=True
-                )
-
-
-# ==============================
-# المحادثة الذكية
-# ==============================
-
-elif page == "المحادثة الذكية":
-
-    st.markdown(
-        '<div class="main-title">المحادثة الذكية</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        """
-        <div class="subtitle">
-        اسأل AI عن كيفية جعل تجربة معينة أكثر شمولاً.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    for message in st.session_state.chat_messages:
-
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    user_message = st.chat_input(
-        "اكتب سؤالك..."
-    )
-
-    if user_message:
-
-        st.session_state.chat_messages.append(
-            {
-                "role": "user",
-                "content": user_message
-            }
-        )
-
-        with st.chat_message("user"):
-            st.markdown(user_message)
-
-        if not client:
-
-            answer = (
-                "الذكاء الاصطناعي غير متصل. "
-                "تأكد من إضافة OPENAI_API_KEY."
+            st.markdown(
+                '<div class="box">',
+                unsafe_allow_html=True
             )
 
-        else:
+            st.markdown(st.session_state.result)
 
-            try:
+            st.markdown(
+                '</div>',
+                unsafe_allow_html=True
+            )
 
-                instructions = """
-أنت مساعد متخصص في التصميم الشامل وإمكانية الوصول.
+    else:
 
-ساعد المستخدم في تصميم تجارب يومية أفضل
-للأشخاص ذوي الإعاقة.
-
-استخدم الذكاء الاصطناعي بشكل حقيقي في الحلول.
-
-ركز على:
-- الاستقلالية
-- سهولة الوصول
-- التصميم الشامل
-- قابلية التطبيق
-- الإبداع
-
-أجب باللغة العربية وبطريقة واضحة.
-"""
-
-                response = client.responses.create(
-                    model=MODEL,
-                    instructions=instructions,
-                    input=user_message
-                )
-
-                answer = response.output_text
-
-            except Exception as e:
-
-                answer = f"حدث خطأ:\n\n{e}"
-
-        st.session_state.chat_messages.append(
-            {
-                "role": "assistant",
-                "content": answer
-            }
+        st.markdown(
+            '<div class="box">',
+            unsafe_allow_html=True
         )
 
-        with st.chat_message("assistant"):
-            st.markdown(answer)
+        st.markdown(st.session_state.result)
+
+        st.markdown(
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+# ---------- Chat ----------
+st.markdown("---")
+
+st.markdown(
+    '<div class="title">اسأل VerifyAI Access</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="description">اسأل عن أي طريقة لجعل تجربة يومية أكثر إتاحة.</div>',
+    unsafe_allow_html=True
+)
+
+for message in st.session_state.messages:
+
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+question = st.chat_input(
+    "مثلاً: كيف أجعل مدخل المدرسة أكثر إتاحة؟"
+)
+
+if question:
+
+    st.session_state.messages.append({
+        "role": "user",
+        "content": question
+    })
+
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    if not client:
+
+        answer = "الذكاء الاصطناعي غير متصل. تأكد من OPENAI_API_KEY."
+
+    else:
+
+        try:
+
+            response = client.responses.create(
+                model=MODEL,
+                instructions="""
+أنت VerifyAI Access، مساعد متخصص في التصميم الشامل.
+
+ساعد المستخدم على جعل التجارب اليومية أكثر إتاحة
+واستقلالية للأشخاص ذوي الإعاقة.
+
+اقترح حلولاً عملية تستخدم الذكاء الاصطناعي بشكل حقيقي.
+أجب باللغة العربية وبوضوح.
+""",
+                input=question
+            )
+
+            answer = response.output_text
+
+        except Exception as e:
+
+            answer = f"حدث خطأ:\n\n{e}"
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer
+    })
+
+    with st.chat_message("assistant"):
+        st.markdown(answer)
