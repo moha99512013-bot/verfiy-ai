@@ -504,5 +504,5 @@ SUMMARY:
                                     },
                                     {
                                         "type": "input_image",
-                                        "image_url":
-                                        f"dat
+                                        "image_url":f"dat
+                                    
