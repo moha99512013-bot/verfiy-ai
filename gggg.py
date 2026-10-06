@@ -5,13 +5,20 @@ import streamlit as st
 from PIL import Image
 from openai import OpenAI
 
+# =========================================================
+# VerifyAI Access
+# =========================================================
+
 st.set_page_config(
     page_title="VerifyAI Access",
     page_icon="♿",
     layout="wide"
 )
 
-# ---------- OpenAI ----------
+# =========================================================
+# OpenAI
+# =========================================================
+
 api_key = os.getenv("OPENAI_API_KEY")
 
 if not api_key:
@@ -23,7 +30,10 @@ if not api_key:
 client = OpenAI(api_key=api_key) if api_key else None
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
-# ---------- State ----------
+# =========================================================
+# Session State
+# =========================================================
+
 if "result" not in st.session_state:
     st.session_state.result = None
 
@@ -33,12 +43,16 @@ if "score" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ---------- Design ----------
+# =========================================================
+# CSS
+# =========================================================
+
 st.markdown("""
 <style>
+
 .stApp {
-    background: #05070b;
-    color: white;
+    background: #ffffff;
+    color: #172033;
 }
 
 header {
@@ -46,137 +60,326 @@ header {
 }
 
 .block-container {
-    max-width: 1050px;
+    max-width: 1150px;
     padding-top: 25px;
+    padding-bottom: 70px;
+}
+
+/* Header */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 5px 25px 5px;
 }
 
 .logo {
     font-size: 25px;
-    font-weight: 800;
+    font-weight: 900;
+    color: #172033;
 }
 
 .logo span {
-    color: #8b9cff;
+    color: #6c63ff;
 }
+
+.status {
+    background: #eefbf4;
+    color: #20a464;
+    border-radius: 30px;
+    padding: 8px 15px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+/* Hero */
 
 .hero {
     text-align: center;
-    padding: 70px 20px 35px;
+    padding: 65px 20px 45px;
 }
 
 .hero h1 {
-    font-size: 48px;
-    margin-bottom: 12px;
+    font-size: 52px;
+    line-height: 1.15;
+    font-weight: 900;
+    color: #172033;
+    margin-bottom: 18px;
 }
 
-.hero h1 span {
-    color: #8b9cff;
+.hero h1 .purple {
+    color: #6c63ff;
+}
+
+.hero h1 .blue {
+    color: #20aee8;
 }
 
 .hero p {
-    color: #9ca8b8 !important;
-    font-size: 17px;
-    line-height: 1.7;
-    max-width: 650px;
+    color: #667085 !important;
+    font-size: 18px;
+    line-height: 1.8;
+    max-width: 720px;
     margin: auto;
 }
 
-.box {
-    background: #0b0f17;
-    border: 1px solid #202938;
-    border-radius: 18px;
-    padding: 25px;
+/* Small colorful cards */
+
+.feature-row {
+    display: flex;
+    gap: 14px;
+    margin: 15px 0 30px;
+}
+
+.feature {
+    flex: 1;
+    padding: 20px;
+    border-radius: 20px;
+    font-weight: 800;
+    font-size: 15px;
+}
+
+.feature p {
+    margin: 7px 0 0;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.purple-card {
+    background: #f1efff;
+    color: #665ce6;
+}
+
+.blue-card {
+    background: #eaf8ff;
+    color: #1699d0;
+}
+
+.green-card {
+    background: #eafaf1;
+    color: #20a464;
+}
+
+.orange-card {
+    background: #fff5e8;
+    color: #ed921c;
+}
+
+/* Main card */
+
+.main-card {
+    background: #ffffff;
+    border: 1px solid #e9edf4;
+    box-shadow: 0 12px 40px rgba(39, 52, 77, 0.08);
+    border-radius: 25px;
+    padding: 30px;
     margin-top: 20px;
 }
 
-.title {
-    font-size: 19px;
-    font-weight: 700;
+.section-title {
+    font-size: 21px;
+    font-weight: 850;
+    color: #172033;
     margin-bottom: 5px;
 }
 
-.description {
-    color: #8f9aaa !important;
+.section-subtitle {
+    color: #7a8495;
     font-size: 14px;
+    margin-bottom: 20px;
 }
 
-.score {
-    font-size: 55px;
-    font-weight: 800;
-    text-align: center;
+/* Upload */
+
+[data-testid="stFileUploader"] {
+    background: #f8faff;
+    border: 2px dashed #cdd5e1;
+    border-radius: 20px;
+    padding: 12px;
 }
 
-.good {
-    color: #55d98a !important;
+[data-testid="stFileUploader"]:hover {
+    border-color: #6c63ff;
+    background: #faf9ff;
 }
 
-.medium {
-    color: #f0c75e !important;
-}
-
-.bad {
-    color: #ff6b6b !important;
-}
+/* Button */
 
 .stButton > button {
     width: 100%;
-    height: 48px;
-    border-radius: 12px;
-    background: #121927;
+    height: 54px;
+    border-radius: 15px;
+    border: none;
+    background: linear-gradient(90deg, #6c63ff, #20aee8);
     color: white;
-    border: 1px solid #303b4c;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 800;
+    box-shadow: 0 8px 20px rgba(108, 99, 255, 0.22);
 }
 
 .stButton > button:hover {
-    border-color: #8b9cff;
+    color: white;
+    transform: translateY(-1px);
 }
 
-[data-testid="stFileUploader"] {
-    background: transparent;
-    border: none;
+/* Result */
+
+.result-card {
+    background: #f8faff;
+    border: 1px solid #e7ebf3;
+    border-radius: 22px;
+    padding: 25px;
+    margin-top: 18px;
 }
+
+.problem-card {
+    background: #fff7f5;
+    border-left: 5px solid #ff6b6b;
+    border-radius: 16px;
+    padding: 18px;
+    margin-top: 12px;
+}
+
+.solution-card {
+    background: #effbf5;
+    border-left: 5px solid #25b874;
+    border-radius: 16px;
+    padding: 18px;
+    margin-top: 12px;
+}
+
+.ai-card {
+    background: #f1efff;
+    border-left: 5px solid #6c63ff;
+    border-radius: 16px;
+    padding: 18px;
+    margin-top: 12px;
+}
+
+/* Score */
+
+.score-box {
+    text-align: center;
+    background: linear-gradient(145deg, #f1efff, #eaf8ff);
+    border-radius: 22px;
+    padding: 25px;
+}
+
+.score-number {
+    font-size: 58px;
+    font-weight: 900;
+    color: #6c63ff;
+}
+
+.score-label {
+    color: #687386;
+    font-size: 13px;
+}
+
+/* Chat */
+
+.chat-title {
+    font-size: 25px;
+    font-weight: 900;
+    color: #172033;
+    margin-top: 45px;
+}
+
+div[data-testid="stChatMessage"] {
+    border-radius: 18px;
+}
+
+/* Image */
+
+img {
+    border-radius: 18px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- Header ----------
+# =========================================================
+# Header
+# =========================================================
+
 st.markdown("""
-<div style="display:flex;justify-content:space-between;align-items:center;">
+<div class="topbar">
     <div class="logo">
         VerifyAI <span>Access</span>
     </div>
 
-    <div style="color:#8f9aaa;font-size:13px;">
-        ● AI Accessibility Assistant
+    <div class="status">
+        ● AI جاهز للتحليل
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- Hero ----------
+# =========================================================
+# Hero
+# =========================================================
+
 st.markdown("""
 <div class="hero">
 
 <h1>
-اجعل العالم <span>أسهل وصولاً</span>
+اكتشف ما يحتاجه المكان<br>
+<span class="purple">ليصبح أسهل</span>
+<span class="blue">للجميع</span>
 </h1>
 
 <p>
-ارفع صورة لمكان أو خدمة، وسيستخدم الذكاء الاصطناعي
-لاكتشاف مشاكل الإتاحة واقتراح حلول تجعل التجربة
-أكثر شمولاً واستقلالية.
+ارفع صورة لأي مكان، ودع الذكاء الاصطناعي يكتشف بنفسه
+المشاكل والعوائق وما الذي يحتاجه المكان ليصبح أكثر إتاحة
+وسهولة واستقلالية للجميع.
 </p>
 
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- Upload ----------
+# =========================================================
+# Features
+# =========================================================
+
 st.markdown("""
-<div class="box">
+<div class="feature-row">
 
-<div class="title">1. ارفع صورة</div>
+<div class="feature purple-card">
+🔎 يكتشف المشكلة
+<p>يحلل المكان ويحدد العوائق الظاهرة.</p>
+</div>
 
-<div class="description">
-صورة لمدخل مبنى، مدرسة، شارع، متجر، محطة أو أي مكان تريد تحليله.
+<div class="feature blue-card">
+💡 يعرف الاحتياج
+<p>يحدد ما الذي يحتاجه المكان.</p>
+</div>
+
+<div class="feature green-card">
+✓ يقترح الحل
+<p>يعطي حلولاً عملية وقابلة للتطبيق.</p>
+</div>
+
+<div class="feature orange-card">
+🤖 يستخدم AI
+<p>ذكاء اصطناعي لتحليل التجربة.</p>
+</div>
+
+</div>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# Upload Section
+# =========================================================
+
+st.markdown("""
+<div class="main-card">
+
+<div class="section-title">
+📷 ارفع صورة المكان
+</div>
+
+<div class="section-subtitle">
+مدخل، مدرسة، شارع، متجر، محطة، ملعب، مبنى أو أي مكان آخر.
 </div>
 
 </div>
@@ -188,6 +391,10 @@ uploaded = st.file_uploader(
     label_visibility="collapsed"
 )
 
+# =========================================================
+# Analyze
+# =========================================================
+
 if uploaded:
 
     try:
@@ -196,48 +403,30 @@ if uploaded:
         st.error("الصورة غير صالحة.")
         st.stop()
 
+    st.write("")
+
     st.image(
         image,
         use_container_width=True
     )
 
-    st.markdown("""
-    <div class="box">
-
-    <div class="title">2. لمن تريد تحسين التجربة؟</div>
-
-    </div>
-    """, unsafe_allow_html=True)
-
-    need = st.selectbox(
-        "نوع الاحتياج",
-        [
-            "تجربة شاملة للجميع",
-            "الأشخاص ذوو الإعاقة البصرية",
-            "الأشخاص ذوو الإعاقة السمعية",
-            "الأشخاص ذوو الإعاقة الحركية",
-            "الأشخاص الذين يحتاجون معلومات مبسطة"
-        ],
-        label_visibility="collapsed"
-    )
-
     st.write("")
 
     analyze = st.button(
-        "✦ تحليل الصورة بالذكاء الاصطناعي",
-        type="primary"
+        "✨ اكتشف ما يحتاجه هذا المكان بالذكاء الاصطناعي"
     )
 
-    # ---------- Analyze ----------
     if analyze:
 
         if not client:
+
             st.error(
                 "OPENAI_API_KEY غير موجود. أضفه في Secrets ثم أعد تشغيل الموقع."
             )
+
         else:
 
-            with st.spinner("جاري تحليل الصورة..."):
+            with st.spinner("الذكاء الاصطناعي يفحص المكان..."):
 
                 try:
 
@@ -258,41 +447,49 @@ if uploaded:
                         buffer.getvalue()
                     ).decode("utf-8")
 
-                    prompt = f"""
-أنت خبير في التصميم الشامل وإمكانية الوصول.
+                    prompt = """
+أنت VerifyAI Access، خبير في التصميم الشامل وإمكانية الوصول.
 
-حلل الصورة المرفقة.
+حلل الصورة المرفقة بنفسك.
 
-نوع الاحتياج:
-{need}
+مهم جداً:
+لا أريد من المستخدم اختيار نوع الإعاقة.
+أنت الذي تحدد من الصورة ما هي المشاكل أو العوائق الظاهرة،
+ومن قد يتأثر بها، وما الذي يحتاجه المكان.
 
-لا تخترع أي شيء غير ظاهر في الصورة.
-إذا كان شيء غير واضح، اذكر أنه غير واضح.
+لا تخترع أشياء غير موجودة في الصورة.
+إذا كان شيء غير واضح، قل إنه غير واضح.
 
 أجب باللغة العربية.
 
-اكتب النتيجة بهذا الشكل:
+استخدم هذا الشكل بالضبط:
 
 SCORE:
-رقم من 0 إلى 100.
+رقم من 0 إلى 100 يوضح مستوى الإتاحة الظاهر في الصورة.
 
-SUMMARY:
-ملخص قصير.
+WHAT_IS_THE_PROBLEM:
+ما المشكلة أو العائق الذي تراه؟
 
-WHAT_IS_GOOD:
-الأشياء الجيدة الظاهرة.
+WHO_MAY_NEED_HELP:
+من الأشخاص الذين قد يحتاجون مساعدة بسبب هذا العائق؟
+مثلاً: مستخدمو الكراسي المتحركة، الأشخاص ذوو الإعاقة البصرية،
+الأشخاص ذوو الإعاقة السمعية، كبار السن، أو غيرهم.
+لا تفترض وجود شخص معين.
 
-PROBLEMS:
-العوائق أو المشاكل المحتملة.
+WHAT_IS_NEEDED:
+ما الشيء الذي يحتاجه المكان ليصبح أكثر إتاحة؟
 
 SOLUTIONS:
-حلول عملية لتحسين الإتاحة.
+حلول عملية وواضحة لتحسين المكان.
 
 AI_SOLUTION:
-كيف يمكن استخدام الذكاء الاصطناعي لجعل
-هذه التجربة أكثر شمولاً واستقلالية.
+فكرة ذكية تستخدم الذكاء الاصطناعي لجعل التجربة
+أسهل وأكثر استقلالية.
 
-ركز على حلول واقعية وقابلة للتطبيق.
+SUMMARY:
+ملخص قصير جداً للنتيجة.
+
+ركز على الأشياء التي يمكن رؤيتها في الصورة.
 """
 
                     response = client.responses.create(
@@ -308,177 +505,4 @@ AI_SOLUTION:
                                     {
                                         "type": "input_image",
                                         "image_url":
-                                        f"data:image/jpeg;base64,{encoded}"
-                                    }
-                                ]
-                            }
-                        ]
-                    )
-
-                    result = response.output_text
-
-                    score = None
-
-                    for line in result.splitlines():
-
-                        if line.strip().upper().startswith("SCORE:"):
-
-                            try:
-                                score = int(
-                                    line.split(":", 1)[1].strip()
-                                )
-                            except:
-                                score = None
-
-                            break
-
-                    st.session_state.result = result
-                    st.session_state.score = score
-
-                except Exception as e:
-
-                    st.error(
-                        f"حدث خطأ أثناء التحليل:\n\n{e}"
-                    )
-
-# ---------- Result ----------
-if st.session_state.result:
-
-    st.markdown("---")
-
-    st.markdown(
-        '<div class="title">نتيجة تحليل AI</div>',
-        unsafe_allow_html=True
-    )
-
-    score = st.session_state.score
-
-    if score is not None:
-
-        if score >= 75:
-            score_class = "good"
-        elif score >= 50:
-            score_class = "medium"
-        else:
-            score_class = "bad"
-
-        col1, col2 = st.columns([1, 3])
-
-        with col1:
-
-            st.markdown(
-                f"""
-                <div class="box">
-
-                <div style="text-align:center;color:#8f9aaa;">
-                Accessibility Score
-                </div>
-
-                <div class="score {score_class}">
-                {score}
-                </div>
-
-                <div style="text-align:center;color:#8f9aaa;">
-                من 100
-                </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        with col2:
-
-            st.markdown(
-                '<div class="box">',
-                unsafe_allow_html=True
-            )
-
-            st.markdown(st.session_state.result)
-
-            st.markdown(
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-    else:
-
-        st.markdown(
-            '<div class="box">',
-            unsafe_allow_html=True
-        )
-
-        st.markdown(st.session_state.result)
-
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-# ---------- Chat ----------
-st.markdown("---")
-
-st.markdown(
-    '<div class="title">اسأل VerifyAI Access</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="description">اسأل عن أي طريقة لجعل تجربة يومية أكثر إتاحة.</div>',
-    unsafe_allow_html=True
-)
-
-for message in st.session_state.messages:
-
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-question = st.chat_input(
-    "مثلاً: كيف أجعل مدخل المدرسة أكثر إتاحة؟"
-)
-
-if question:
-
-    st.session_state.messages.append({
-        "role": "user",
-        "content": question
-    })
-
-    with st.chat_message("user"):
-        st.markdown(question)
-
-    if not client:
-
-        answer = "الذكاء الاصطناعي غير متصل. تأكد من OPENAI_API_KEY."
-
-    else:
-
-        try:
-
-            response = client.responses.create(
-                model=MODEL,
-                instructions="""
-أنت VerifyAI Access، مساعد متخصص في التصميم الشامل.
-
-ساعد المستخدم على جعل التجارب اليومية أكثر إتاحة
-واستقلالية للأشخاص ذوي الإعاقة.
-
-اقترح حلولاً عملية تستخدم الذكاء الاصطناعي بشكل حقيقي.
-أجب باللغة العربية وبوضوح.
-""",
-                input=question
-            )
-
-            answer = response.output_text
-
-        except Exception as e:
-
-            answer = f"حدث خطأ:\n\n{e}"
-
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer
-    })
-
-    with st.chat_message("assistant"):
-        st.markdown(answer)
+                                        f"dat
