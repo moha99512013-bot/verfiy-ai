@@ -1,13 +1,15 @@
 import os
 import math
+import html
 import requests
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 
-# =========================
+
+# =========================================================
 # CONFIG
-# =========================
+# =========================================================
 
 st.set_page_config(
     page_title="VerifyAI Access",
@@ -20,30 +22,40 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OSRM_URL = "https://router.project-osrm.org/route/v1/foot"
 
 HEADERS = {
-    "User-Agent": "VerifyAI-Access/1.0 accessibility-navigation"
+    "User-Agent": "VerifyAI-Access/2.0 accessibility-navigation"
 }
 
-# =========================
-# CSS
-# =========================
 
-st.markdown("""
+# =========================================================
+# CSS
+# =========================================================
+
+st.markdown(
+    """
 <style>
 
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
 
-* {
-    font-family: 'Cairo', sans-serif;
+html, body, [class*="css"] {
+    font-family: "Cairo", sans-serif;
 }
 
 .stApp {
     background:
-        radial-gradient(circle at 10% 10%, rgba(125, 92, 255, 0.10), transparent 25%),
-        radial-gradient(circle at 90% 20%, rgba(0, 210, 190, 0.10), transparent 25%),
+        radial-gradient(
+            circle at 8% 5%,
+            rgba(118, 87, 255, 0.10),
+            transparent 25%
+        ),
+        radial-gradient(
+            circle at 92% 10%,
+            rgba(0, 196, 180, 0.10),
+            transparent 25%
+        ),
         #f7f8fc;
-    color: #151526;
 }
 
 .block-container {
@@ -52,92 +64,89 @@ st.markdown("""
     padding-bottom: 3rem;
 }
 
-/* =========================
-   TOP BAR
-========================= */
+
+/* TOP */
 
 .topbar {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 24px;
-    background: rgba(255,255,255,0.90);
-    border: 1px solid rgba(20,20,40,0.07);
+    background: rgba(255,255,255,.94);
+    border: 1px solid #e8e7ef;
     border-radius: 22px;
-    box-shadow: 0 10px 35px rgba(30,25,70,0.06);
-    margin-bottom: 28px;
+    padding: 17px 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    box-shadow: 0 12px 35px rgba(35,25,80,.06);
 }
 
 .brand {
     font-size: 25px;
     font-weight: 900;
-    letter-spacing: -0.7px;
 }
 
-.brand span {
+.brand-access {
     color: #7657ff;
 }
 
 .status {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    background: #f0efff;
-    color: #6650db;
-    padding: 9px 15px;
+    background: #f0eeff;
+    color: #624bd5;
+    padding: 8px 14px;
     border-radius: 999px;
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 800;
 }
 
 .status-dot {
-    width: 9px;
-    height: 9px;
-    background: #35c98a;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #36c98a;
     border-radius: 50%;
-    box-shadow: 0 0 0 5px rgba(53,201,138,0.12);
+    margin-left: 6px;
 }
 
-/* =========================
-   HERO
-========================= */
+
+/* HERO */
 
 .hero {
-    position: relative;
-    overflow: hidden;
-    border-radius: 30px;
-    padding: 48px;
-    margin-bottom: 25px;
     background:
-        radial-gradient(circle at 85% 20%, rgba(119,87,255,0.18), transparent 30%),
-        radial-gradient(circle at 10% 90%, rgba(0,207,190,0.12), transparent 30%),
+        radial-gradient(
+            circle at 85% 15%,
+            rgba(118,87,255,.14),
+            transparent 32%
+        ),
+        radial-gradient(
+            circle at 15% 100%,
+            rgba(0,196,180,.11),
+            transparent 30%
+        ),
         white;
-    border: 1px solid rgba(30,30,60,0.07);
-    box-shadow: 0 20px 60px rgba(35,25,90,0.08);
-}
 
-.hero-content {
-    max-width: 780px;
+    border: 1px solid #e9e8f0;
+    border-radius: 30px;
+    padding: 45px;
+    margin-bottom: 24px;
+    box-shadow: 0 20px 60px rgba(40,30,90,.07);
 }
 
 .hero-tag {
     display: inline-block;
-    padding: 8px 14px;
-    border-radius: 999px;
     background: #f0edff;
-    color: #6b51e6;
-    font-size: 12px;
-    font-weight: 800;
-    margin-bottom: 17px;
+    color: #674ee0;
+    padding: 7px 13px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 900;
+    margin-bottom: 16px;
 }
 
 .hero h1 {
-    font-size: clamp(38px, 5vw, 68px);
+    font-size: clamp(38px, 5vw, 67px);
     line-height: 1.08;
-    margin: 0 0 18px 0;
-    font-weight: 900;
     letter-spacing: -2px;
+    margin: 0 0 17px 0;
+    font-weight: 900;
 }
 
 .hero h1 span {
@@ -145,262 +154,241 @@ st.markdown("""
 }
 
 .hero p {
-    max-width: 760px;
-    color: #646579;
-    font-size: 17px;
+    max-width: 800px;
+    color: #696a7c;
+    font-size: 16px;
     line-height: 2;
-    margin: 0;
 }
 
-/* =========================
-   SEARCH CARD
-========================= */
+
+/* SEARCH */
 
 .search-card {
     background: white;
-    border: 1px solid rgba(30,30,60,0.07);
+    border: 1px solid #e7e6ee;
     border-radius: 25px;
     padding: 25px;
-    box-shadow: 0 15px 45px rgba(30,25,70,0.06);
-    margin-bottom: 25px;
+    margin-bottom: 20px;
+    box-shadow: 0 12px 40px rgba(35,25,80,.05);
 }
 
-.search-title {
+.section-title {
     font-size: 20px;
     font-weight: 900;
-    margin-bottom: 4px;
 }
 
-.search-subtitle {
-    color: #77798b;
+.section-description {
+    color: #7b7c8c;
     font-size: 13px;
+    margin-top: 3px;
     margin-bottom: 18px;
 }
 
-/* =========================
-   MAP
-========================= */
 
-.map-card {
+/* MAP */
+
+.map-container {
     background: white;
-    padding: 12px;
     border-radius: 27px;
-    border: 1px solid rgba(30,30,60,0.07);
-    box-shadow: 0 18px 55px rgba(30,25,70,0.07);
-    margin-bottom: 25px;
+    border: 1px solid #e7e6ee;
+    padding: 10px;
+    box-shadow: 0 16px 50px rgba(35,25,80,.06);
 }
 
-.map-title {
-    padding: 15px 18px 8px;
+.map-heading {
+    padding: 12px 15px;
+}
+
+.map-heading-title {
     font-size: 20px;
     font-weight: 900;
 }
 
-.map-subtitle {
-    padding: 0 18px 15px;
-    color: #77798b;
-    font-size: 13px;
+.map-heading-text {
+    color: #77788a;
+    font-size: 12px;
 }
 
-/* =========================
-   STATS
-========================= */
 
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 15px;
-    margin-bottom: 25px;
-}
+/* STATS */
 
-.stat {
+.stat-card {
     background: white;
-    border: 1px solid rgba(30,30,60,0.07);
-    border-radius: 22px;
-    padding: 22px;
+    border: 1px solid #e8e7ef;
+    border-radius: 20px;
+    padding: 19px;
     text-align: center;
-    box-shadow: 0 12px 35px rgba(30,25,70,0.05);
+    box-shadow: 0 10px 32px rgba(35,25,80,.045);
 }
 
 .stat-icon {
-    font-size: 27px;
-    margin-bottom: 7px;
+    font-size: 25px;
 }
 
-.stat-number {
-    font-size: 25px;
-    font-weight: 900;
+.stat-value {
     color: #7657ff;
+    font-size: 24px;
+    font-weight: 900;
 }
 
 .stat-label {
-    font-size: 12px;
-    color: #77798b;
-    margin-top: 3px;
-    font-weight: 600;
+    color: #77788a;
+    font-size: 11px;
+    font-weight: 700;
 }
 
-/* =========================
-   INFORMATION CARDS
-========================= */
+
+/* CARDS */
 
 .info-card {
     background: white;
-    border: 1px solid rgba(30,30,60,0.07);
-    border-radius: 25px;
-    padding: 25px;
-    box-shadow: 0 15px 45px rgba(30,25,70,0.05);
-    height: 100%;
+    border: 1px solid #e7e6ee;
+    border-radius: 24px;
+    padding: 23px;
+    box-shadow: 0 12px 38px rgba(35,25,80,.05);
 }
 
-.card-title {
-    font-size: 20px;
+.info-title {
+    font-size: 19px;
     font-weight: 900;
-    margin-bottom: 5px;
 }
 
-.card-subtitle {
-    color: #77798b;
-    font-size: 13px;
-    margin-bottom: 20px;
+.info-subtitle {
+    color: #7a7b8b;
+    font-size: 12px;
+    margin-bottom: 16px;
 }
 
-/* =========================
-   LEGEND
-========================= */
 
-.legend {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-}
+/* ACCESS ITEMS */
 
-.legend-item {
+.access-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 13px;
-    background: #f8f8fc;
+    gap: 11px;
+    padding: 11px 13px;
     border-radius: 14px;
-    color: #39394b;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.legend-icon {
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9px;
-    background: white;
-    font-size: 17px;
-}
-
-/* =========================
-   ROUTE ANALYSIS
-========================= */
-
-.route-analysis {
-    padding: 18px;
-    border-radius: 17px;
-    background: #f6f5ff;
-    border: 1px solid #e8e4ff;
-}
-
-.route-status {
-    font-size: 17px;
-    font-weight: 900;
-    color: #5f49d4;
+    background: #f8f8fc;
     margin-bottom: 8px;
 }
 
-.route-text {
-    color: #68697a;
-    line-height: 1.9;
+.access-icon {
+    font-size: 20px;
+    width: 30px;
+    text-align: center;
+}
+
+.access-name {
+    font-weight: 800;
     font-size: 13px;
 }
 
-/* =========================
-   FOOTER
-========================= */
-
-.footer {
-    text-align: center;
-    color: #9697a5;
-    font-size: 12px;
-    padding: 25px 0 10px;
+.access-description {
+    color: #77788a;
+    font-size: 11px;
 }
 
-/* =========================
-   BUTTONS
-========================= */
+
+/* ROUTE */
+
+.route-good {
+    background: #effbf6;
+    border: 1px solid #d3f2e3;
+    color: #187852;
+    padding: 17px;
+    border-radius: 16px;
+}
+
+.route-warning {
+    background: #fff8ea;
+    border: 1px solid #f7dfac;
+    color: #986b18;
+    padding: 17px;
+    border-radius: 16px;
+}
+
+.route-title {
+    font-size: 16px;
+    font-weight: 900;
+    margin-bottom: 6px;
+}
+
+.route-description {
+    font-size: 12px;
+    line-height: 1.9;
+}
+
+
+/* INDOOR */
+
+.indoor-box {
+    background:
+        linear-gradient(
+            135deg,
+            #f5f2ff,
+            #f1fffc
+        );
+    border: 1px solid #e5e0ff;
+    border-radius: 18px;
+    padding: 18px;
+}
+
+.indoor-title {
+    font-weight: 900;
+    font-size: 17px;
+}
+
+.indoor-text {
+    color: #666779;
+    font-size: 12px;
+    line-height: 1.9;
+}
+
+
+/* BUTTON */
 
 .stButton > button {
     border-radius: 14px !important;
     border: 0 !important;
+    min-height: 45px !important;
     background: #7657ff !important;
     color: white !important;
     font-weight: 800 !important;
-    min-height: 45px !important;
-    box-shadow: 0 8px 22px rgba(118,87,255,0.22);
+    box-shadow: 0 8px 22px rgba(118,87,255,.22);
 }
 
 .stButton > button:hover {
-    background: #6749ed !important;
+    background: #6549e8 !important;
 }
 
-/* =========================
-   INPUTS
-========================= */
+
+/* INPUT */
 
 .stTextInput input {
     border-radius: 14px !important;
-    border: 1px solid #e5e4ed !important;
     min-height: 45px !important;
+    border: 1px solid #e2e1ea !important;
 }
 
-.stTextInput input:focus {
-    border-color: #7657ff !important;
-    box-shadow: 0 0 0 2px rgba(118,87,255,0.10) !important;
-}
 
-/* =========================
-   MOBILE
-========================= */
+/* FOOTER */
 
-@media (max-width: 800px) {
-
-    .hero {
-        padding: 30px 22px;
-    }
-
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .legend {
-        grid-template-columns: 1fr;
-    }
-
-    .topbar {
-        padding: 15px;
-    }
-
-    .brand {
-        font-size: 21px;
-    }
-
+.footer {
+    text-align: center;
+    color: #999aa8;
+    font-size: 11px;
+    padding: 30px 0 5px;
 }
 
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
 
-# =========================
+# =========================================================
 # SESSION
-# =========================
+# =========================================================
 
 if "route_result" not in st.session_state:
     st.session_state.route_result = None
@@ -408,28 +396,23 @@ if "route_result" not in st.session_state:
 if "ai_answer" not in st.session_state:
     st.session_state.ai_answer = None
 
-if "start_text" not in st.session_state:
-    st.session_state.start_text = ""
 
-if "destination_text" not in st.session_state:
-    st.session_state.destination_text = ""
-
-
-# =========================
-# HELPERS
-# =========================
+# =========================================================
+# BASIC FUNCTIONS
+# =========================================================
 
 def geocode(place):
+
     try:
-        params = {
-            "q": place,
-            "format": "json",
-            "limit": 1
-        }
 
         response = requests.get(
             NOMINATIM_URL,
-            params=params,
+            params={
+                "q": place,
+                "format": "json",
+                "limit": 1,
+                "addressdetails": 1
+            },
             headers=HEADERS,
             timeout=15
         )
@@ -439,10 +422,12 @@ def geocode(place):
         if not data:
             return None
 
+        item = data[0]
+
         return {
-            "lat": float(data[0]["lat"]),
-            "lon": float(data[0]["lon"]),
-            "name": data[0].get("display_name", place)
+            "lat": float(item["lat"]),
+            "lon": float(item["lon"]),
+            "name": item.get("display_name", place)
         }
 
     except Exception:
@@ -451,7 +436,7 @@ def geocode(place):
 
 def distance_meters(lat1, lon1, lat2, lon2):
 
-    radius = 6371000
+    earth = 6371000
 
     p1 = math.radians(lat1)
     p2 = math.radians(lat2)
@@ -466,35 +451,40 @@ def distance_meters(lat1, lon1, lat2, lon2):
         * math.sin(dl / 2) ** 2
     )
 
-    return radius * 2 * math.atan2(
+    return earth * 2 * math.atan2(
         math.sqrt(a),
         math.sqrt(1 - a)
     )
 
 
+# =========================================================
+# OUTDOOR ACCESSIBILITY DATA
+# =========================================================
+
 def get_accessibility_data(lat, lon, radius=1800):
 
     query = f"""
-    [out:json][timeout:25];
+    [out:json][timeout:30];
 
     (
-      node["highway"="steps"](around:{radius},{lat},{lon});
-      way["highway"="steps"](around:{radius},{lat},{lon});
+        node["highway"="steps"](around:{radius},{lat},{lon});
+        way["highway"="steps"](around:{radius},{lat},{lon});
 
-      node["highway"="elevator"](around:{radius},{lat},{lon});
-      node["elevator"="yes"](around:{radius},{lat},{lon});
+        node["highway"="elevator"](around:{radius},{lat},{lon});
+        way["highway"="elevator"](around:{radius},{lat},{lon});
 
-      node["ramp"="yes"](around:{radius},{lat},{lon});
-      way["ramp"="yes"](around:{radius},{lat},{lon});
+        node["ramp"="yes"](around:{radius},{lat},{lon});
+        way["ramp"="yes"](around:{radius},{lat},{lon});
 
-      node["wheelchair"](around:{radius},{lat},{lon});
-      way["wheelchair"](around:{radius},{lat},{lon});
+        node["wheelchair"](around:{radius},{lat},{lon});
+        way["wheelchair"](around:{radius},{lat},{lon});
 
-      node["amenity"="toilets"]["wheelchair"="yes"](around:{radius},{lat},{lon});
-      node["amenity"="parking"]["wheelchair"="yes"](around:{radius},{lat},{lon});
+        node["amenity"="toilets"]["wheelchair"="yes"](around:{radius},{lat},{lon});
 
-      node["entrance"]["wheelchair"="yes"](around:{radius},{lat},{lon});
-      way["entrance"]["wheelchair"="yes"](around:{radius},{lat},{lon});
+        node["amenity"="parking"]["wheelchair"="yes"](around:{radius},{lat},{lon});
+
+        node["entrance"]["wheelchair"="yes"](around:{radius},{lat},{lon});
+        way["entrance"]["wheelchair"="yes"](around:{radius},{lat},{lon});
     );
 
     out center;
@@ -506,23 +496,209 @@ def get_accessibility_data(lat, lon, radius=1800):
             OVERPASS_URL,
             data=query,
             headers=HEADERS,
-            timeout=35
+            timeout=40
         )
 
-        data = response.json()
-
-        return data.get("elements", [])
+        return response.json().get("elements", [])
 
     except Exception:
-
         return []
 
 
-def get_route(start, destination):
+# =========================================================
+# INDOOR DATA
+# =========================================================
+
+def get_indoor_data(lat, lon, radius=250):
+
+    """
+    يبحث عن عناصر Indoor Mapping حول الوجهة.
+
+    ندعم:
+    - building
+    - entrance
+    - indoor
+    - room
+    - corridor
+    - elevator
+    - stairs
+    - level
+    - wheelchair
+    """
+
+    query = f"""
+    [out:json][timeout:35];
+
+    (
+        way["building"](around:{radius},{lat},{lon});
+        relation["building"](around:{radius},{lat},{lon});
+
+        node["entrance"](around:{radius},{lat},{lon});
+        way["entrance"](around:{radius},{lat},{lon});
+
+        node["indoor"](around:{radius},{lat},{lon});
+        way["indoor"](around:{radius},{lat},{lon});
+        relation["indoor"](around:{radius},{lat},{lon});
+
+        node["room"](around:{radius},{lat},{lon});
+        way["room"](around:{radius},{lat},{lon});
+
+        node["highway"="elevator"](around:{radius},{lat},{lon});
+        node["elevator"="yes"](around:{radius},{lat},{lon});
+
+        node["highway"="steps"](around:{radius},{lat},{lon});
+
+        node["level"](around:{radius},{lat},{lon});
+        way["level"](around:{radius},{lat},{lon});
+
+        node["wheelchair"](around:{radius},{lat},{lon});
+        way["wheelchair"](around:{radius},{lat},{lon});
+
+        node["amenity"="toilets"](around:{radius},{lat},{lon});
+        node["amenity"="parking"](around:{radius},{lat},{lon});
+    );
+
+    out center;
+    """
+
+    try:
+
+        response = requests.post(
+            OVERPASS_URL,
+            data=query,
+            headers=HEADERS,
+            timeout=45
+        )
+
+        return response.json().get("elements", [])
+
+    except Exception:
+        return []
+
+
+def parse_indoor_data(elements, destination_lat, destination_lon):
+
+    result = {
+        "buildings": [],
+        "entrances": [],
+        "elevators": [],
+        "stairs": [],
+        "ramps": [],
+        "rooms": [],
+        "corridors": [],
+        "toilets": [],
+        "parking": [],
+        "levels": set(),
+        "wheelchair_yes": [],
+        "wheelchair_no": [],
+        "all": []
+    }
+
+    for element in elements:
+
+        tags = element.get("tags", {})
+
+        if "lat" in element:
+
+            lat = element["lat"]
+            lon = element["lon"]
+
+        elif "center" in element:
+
+            lat = element["center"]["lat"]
+            lon = element["center"]["lon"]
+
+        else:
+            continue
+
+        point = {
+            "lat": lat,
+            "lon": lon,
+            "tags": tags
+        }
+
+        result["all"].append(point)
+
+        # Levels
+        level = tags.get("level")
+
+        if level:
+            for value in str(level).split(";"):
+                result["levels"].add(value.strip())
+
+        # Buildings
+        if "building" in tags:
+            result["buildings"].append(point)
+
+        # Entrances
+        if "entrance" in tags:
+            result["entrances"].append(point)
+
+        # Elevators
+        if (
+            tags.get("highway") == "elevator"
+            or tags.get("elevator") == "yes"
+            or tags.get("indoor") == "elevator"
+        ):
+            result["elevators"].append(point)
+
+        # Stairs
+        if (
+            tags.get("highway") == "steps"
+            or tags.get("indoor") == "stairs"
+        ):
+            result["stairs"].append(point)
+
+        # Ramps
+        if tags.get("ramp") == "yes":
+            result["ramps"].append(point)
+
+        # Rooms
+        if (
+            "room" in tags
+            or tags.get("indoor") == "room"
+        ):
+            result["rooms"].append(point)
+
+        # Corridors
+        if (
+            tags.get("indoor") == "corridor"
+            or tags.get("highway") == "corridor"
+        ):
+            result["corridors"].append(point)
+
+        # Toilets
+        if tags.get("amenity") == "toilets":
+            result["toilets"].append(point)
+
+        # Parking
+        if tags.get("amenity") == "parking":
+            result["parking"].append(point)
+
+        wheelchair = tags.get("wheelchair")
+
+        if wheelchair == "yes":
+            result["wheelchair_yes"].append(point)
+
+        elif wheelchair == "no":
+            result["wheelchair_no"].append(point)
+
+    result["levels"] = sorted(
+        list(result["levels"]),
+        key=lambda x: float(x) if x.replace(".", "", 1).isdigit() else 999
+    )
+
+    return result
+
+
+# =========================================================
+# ROUTING
+# =========================================================
+
+def get_routes(start, destination):
 
     url = (
-        "https://router.project-osrm.org/"
-        "route/v1/foot/"
+        f"{OSRM_URL}/"
         f"{start['lon']},{start['lat']};"
         f"{destination['lon']},{destination['lat']}"
     )
@@ -539,128 +715,50 @@ def get_route(start, destination):
         response = requests.get(
             url,
             params=params,
-            timeout=25
+            timeout=30
         )
 
-        data = response.json()
-
-        return data.get("routes", [])
+        return response.json().get("routes", [])
 
     except Exception:
-
         return []
-
-
-def classify_accessibility(elements):
-
-    result = {
-        "stairs": [],
-        "elevators": [],
-        "ramps": [],
-        "wheelchair_yes": [],
-        "wheelchair_limited": [],
-        "wheelchair_no": [],
-        "toilets": [],
-        "parking": [],
-        "entrances": []
-    }
-
-    for element in elements:
-
-        tags = element.get("tags", {})
-
-        if "lat" in element:
-            lat = element["lat"]
-            lon = element["lon"]
-
-        elif "center" in element:
-            lat = element["center"]["lat"]
-            lon = element["center"]["lon"]
-
-        else:
-            continue
-
-        point = {
-            "lat": lat,
-            "lon": lon,
-            "tags": tags
-        }
-
-        if tags.get("highway") == "steps":
-            result["stairs"].append(point)
-
-        if tags.get("highway") == "elevator" or tags.get("elevator") == "yes":
-            result["elevators"].append(point)
-
-        if tags.get("ramp") == "yes":
-            result["ramps"].append(point)
-
-        wheelchair = tags.get("wheelchair")
-
-        if wheelchair == "yes":
-            result["wheelchair_yes"].append(point)
-
-        elif wheelchair == "limited":
-            result["wheelchair_limited"].append(point)
-
-        elif wheelchair == "no":
-            result["wheelchair_no"].append(point)
-
-        if (
-            tags.get("amenity") == "toilets"
-            and tags.get("wheelchair") == "yes"
-        ):
-            result["toilets"].append(point)
-
-        if (
-            tags.get("amenity") == "parking"
-            and tags.get("wheelchair") == "yes"
-        ):
-            result["parking"].append(point)
-
-        if (
-            tags.get("entrance")
-            and tags.get("wheelchair") == "yes"
-        ):
-            result["entrances"].append(point)
-
-    return result
 
 
 def score_route(route, accessibility):
 
     score = 100
 
-    geometry = route["geometry"]["coordinates"]
+    coordinates = route["geometry"]["coordinates"]
 
-    # Check nearby accessibility data
-    for lat, lon in [
-        (p[1], p[0])
-        for p in geometry[::max(1, len(geometry)//80)]
-    ]:
+    sample_step = max(
+        1,
+        len(coordinates) // 80
+    )
+
+    sampled = coordinates[::sample_step]
+
+    for lon, lat in sampled:
 
         for stair in accessibility["stairs"]:
 
-            d = distance_meters(
+            if distance_meters(
                 lat,
                 lon,
                 stair["lat"],
                 stair["lon"]
-            )
+            ) < 80:
 
-            if d < 80:
-                score -= 18
+                score -= 15
 
         for bad in accessibility["wheelchair_no"]:
 
-            d = distance_meters(
+            if distance_meters(
                 lat,
                 lon,
                 bad["lat"],
                 bad["lon"]
-            )
+            ) < 80:
 
-            if d < 80:
                 score -= 20
 
         for good in (
@@ -669,30 +767,28 @@ def score_route(route, accessibility):
             + accessibility["elevators"]
         ):
 
-            d = distance_meters(
+            if distance_meters(
                 lat,
                 lon,
                 good["lat"],
                 good["lon"]
-            )
+            ) < 100:
 
-            if d < 100:
-                score += 3
+                score += 2
 
-    score = max(0, min(100, score))
-
-    return score
+    return max(0, min(100, round(score)))
 
 
-# =========================
+# =========================================================
 # TOP BAR
-# =========================
+# =========================================================
 
-st.markdown("""
+st.markdown(
+    """
 <div class="topbar">
 
     <div class="brand">
-        VerifyAI <span>Access</span>
+        VerifyAI <span class="brand-access">Access</span>
     </div>
 
     <div class="status">
@@ -701,297 +797,344 @@ st.markdown("""
     </div>
 
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
 
-# =========================
+# =========================================================
 # HERO
-# =========================
+# =========================================================
 
-st.markdown("""
+st.markdown(
+    """
 <div class="hero">
 
-    <div class="hero-content">
-
-        <div class="hero-tag">
-            ♿ AI-POWERED ACCESSIBILITY
-        </div>
-
-        <h1>
-            تحرك بحرية.<br>
-            <span>الوصول للجميع.</span>
-        </h1>
-
-        <p>
-            خريطة ذكية مصممة أولاً لمستخدمي الكراسي المتحركة.
-            ابحث عن وجهتك واحصل على مسار يعطي الأولوية
-            للطرق المناسبة، مع إظهار المصاعد والمنحدرات
-            والعوائق ونقاط الوصول المهيأة المسجلة على الخريطة.
-        </p>
-
+    <div class="hero-tag">
+        ♿ AI-POWERED ACCESSIBILITY
     </div>
 
+    <h1>
+        تحرك بحرية.<br>
+        <span>الوصول للجميع.</span>
+    </h1>
+
+    <p>
+        خريطة ذكية تساعد مستخدمي الكراسي المتحركة
+        على العثور على مسارات أكثر ملاءمة، مع إظهار
+        المصاعد والمنحدرات والمداخل والعوائق.
+        وعندما تتوفر بيانات داخلية للمبنى، يعرض النظام
+        الطوابق والأماكن الداخلية المسجلة أيضًا.
+    </p>
+
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
 
-# =========================
+# =========================================================
 # SEARCH
-# =========================
+# =========================================================
 
-st.markdown("""
+st.markdown(
+    """
 <div class="search-card">
 
-    <div class="search-title">
-        🧭 أين تريد الذهاب؟
+    <div class="section-title">
+        🧭 ابحث عن طريقك
     </div>
 
-    <div class="search-subtitle">
-        أدخل نقطة البداية والوجهة للحصول على المسار المقترح.
+    <div class="section-description">
+        اكتب نقطة البداية والوجهة. ويمكنك كتابة اسم مبنى أو جامعة أو مستشفى.
     </div>
 
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
-col1, col2, col3 = st.columns([1, 1, 0.32])
+c1, c2 = st.columns(2)
 
-with col1:
+with c1:
 
-    start = st.text_input(
+    start_text = st.text_input(
         "نقطة البداية",
-        placeholder="مثال: جامعة الملك عبدالعزيز",
-        key="start_input"
+        placeholder="مثال: جامعة الملك عبدالعزيز"
     )
 
-with col2:
+with c2:
 
-    destination = st.text_input(
+    destination_text = st.text_input(
         "الوجهة",
-        placeholder="مثال: مستشفى الملك فهد",
-        key="destination_input"
+        placeholder="مثال: مستشفى الملك فهد"
     )
 
-with col3:
-
-    st.write("")
-
-    search = st.button(
-        "اعثر على المسار",
-        use_container_width=True
-    )
+search_button = st.button(
+    "🔎 البحث عن أفضل مسار",
+    use_container_width=True
+)
 
 
-# =========================
-# ROUTE SEARCH
-# =========================
+# =========================================================
+# SEARCH ACTION
+# =========================================================
 
-if search:
+if search_button:
 
-    if not start or not destination:
+    if not start_text.strip() or not destination_text.strip():
 
-        st.warning("يرجى إدخال نقطة البداية والوجهة.")
+        st.warning(
+            "أدخل نقطة البداية والوجهة أولًا."
+        )
 
     else:
 
-        with st.spinner("جاري البحث عن أفضل مسار..."):
+        with st.spinner("جاري تحليل المكان والمسارات..."):
 
-            start_location = geocode(start)
-            destination_location = geocode(destination)
+            start = geocode(start_text)
+            destination = geocode(destination_text)
 
-            if not start_location or not destination_location:
+            if not start or not destination:
 
                 st.error(
-                    "لم نتمكن من العثور على إحدى النقطتين. "
-                    "جرّب كتابة اسم المكان بشكل أوضح."
+                    "لم أتمكن من تحديد أحد المكانين. "
+                    "جرّب اسمًا أكثر تحديدًا."
                 )
 
             else:
 
-                routes = get_route(
-                    start_location,
-                    destination_location
+                routes = get_routes(
+                    start,
+                    destination
                 )
 
-                if not routes:
+                outdoor_raw = get_accessibility_data(
+                    destination["lat"],
+                    destination["lon"]
+                )
 
-                    st.error(
-                        "تعذر العثور على مسار حاليًا. "
-                        "حاول مرة أخرى."
-                    )
+                outdoor = {
+                    "stairs": [],
+                    "elevators": [],
+                    "ramps": [],
+                    "wheelchair_yes": [],
+                    "wheelchair_no": [],
+                    "toilets": [],
+                    "parking": [],
+                    "entrances": []
+                }
 
-                else:
+                for item in outdoor_raw:
 
-                    accessibility_elements = get_accessibility_data(
-                        destination_location["lat"],
-                        destination_location["lon"]
-                    )
+                    tags = item.get("tags", {})
 
-                    accessibility = classify_accessibility(
-                        accessibility_elements
-                    )
+                    if "lat" in item:
+                        lat = item["lat"]
+                        lon = item["lon"]
 
-                    scored_routes = []
+                    elif "center" in item:
+                        lat = item["center"]["lat"]
+                        lon = item["center"]["lon"]
+
+                    else:
+                        continue
+
+                    point = {
+                        "lat": lat,
+                        "lon": lon,
+                        "tags": tags
+                    }
+
+                    if tags.get("highway") == "steps":
+                        outdoor["stairs"].append(point)
+
+                    if (
+                        tags.get("highway") == "elevator"
+                        or tags.get("elevator") == "yes"
+                    ):
+                        outdoor["elevators"].append(point)
+
+                    if tags.get("ramp") == "yes":
+                        outdoor["ramps"].append(point)
+
+                    wheelchair = tags.get("wheelchair")
+
+                    if wheelchair == "yes":
+                        outdoor["wheelchair_yes"].append(point)
+
+                    elif wheelchair == "no":
+                        outdoor["wheelchair_no"].append(point)
+
+                    if (
+                        tags.get("amenity") == "toilets"
+                        and tags.get("wheelchair") == "yes"
+                    ):
+                        outdoor["toilets"].append(point)
+
+                    if (
+                        tags.get("amenity") == "parking"
+                        and tags.get("wheelchair") == "yes"
+                    ):
+                        outdoor["parking"].append(point)
+
+                    if (
+                        tags.get("entrance")
+                        and tags.get("wheelchair") == "yes"
+                    ):
+                        outdoor["entrances"].append(point)
+
+                indoor_raw = get_indoor_data(
+                    destination["lat"],
+                    destination["lon"]
+                )
+
+                indoor = parse_indoor_data(
+                    indoor_raw,
+                    destination["lat"],
+                    destination["lon"]
+                )
+
+                if routes:
+
+                    scored = []
 
                     for route in routes:
 
-                        route_score = score_route(
+                        score = score_route(
                             route,
-                            accessibility
+                            outdoor
                         )
 
-                        scored_routes.append(
-                            (
-                                route_score,
-                                route
-                            )
+                        scored.append(
+                            (score, route)
                         )
 
-                    scored_routes.sort(
+                    scored.sort(
                         key=lambda x: x[0],
                         reverse=True
                     )
 
-                    best_score, best_route = scored_routes[0]
+                    best_score, best_route = scored[0]
 
-                    st.session_state.route_result = {
-                        "start": start_location,
-                        "destination": destination_location,
-                        "route": best_route,
-                        "score": best_score,
-                        "accessibility": accessibility
-                    }
+                else:
 
-                    st.session_state.ai_answer = None
+                    best_score = 0
+                    best_route = None
+
+                st.session_state.route_result = {
+                    "start": start,
+                    "destination": destination,
+                    "route": best_route,
+                    "score": best_score,
+                    "outdoor": outdoor,
+                    "indoor": indoor
+                }
+
+                st.session_state.ai_answer = None
 
 
-# =========================
-# DISPLAY RESULT
-# =========================
+# =========================================================
+# RESULT
+# =========================================================
 
 result = st.session_state.route_result
 
 if result:
 
-    start_location = result["start"]
-    destination_location = result["destination"]
+    start = result["start"]
+    destination = result["destination"]
     route = result["route"]
     score = result["score"]
-    accessibility = result["accessibility"]
+    outdoor = result["outdoor"]
+    indoor = result["indoor"]
 
-    # =========================
+    # -----------------------------------------------------
     # STATS
-    # =========================
+    # -----------------------------------------------------
 
-    distance_km = route["distance"] / 1000
+    if route:
 
-    duration_min = max(
-        1,
-        round(route["duration"] / 60)
-    )
+        distance_km = route["distance"] / 1000
+        minutes = max(
+            1,
+            round(route["duration"] / 60)
+        )
 
-    elevator_count = len(
-        accessibility["elevators"]
-    )
+    else:
 
-    st.markdown(f"""
-    <div class="stats-grid">
+        distance_km = 0
+        minutes = 0
 
-        <div class="stat">
+    cols = st.columns(4)
 
-            <div class="stat-icon">
-                ♿
-            </div>
+    stats = [
+        ("♿", f"{score}%", "مؤشر الإتاحة"),
+        ("🛣️", f"{distance_km:.1f} كم", "المسافة"),
+        ("⏱️", f"{minutes} دقيقة", "الوقت التقريبي"),
+        ("🏢", str(len(indoor["buildings"])), "مبانٍ مكتشفة")
+    ]
 
-            <div class="stat-number">
-                {score}%
-            </div>
+    for col, data in zip(cols, stats):
 
-            <div class="stat-label">
-                مؤشر الإتاحة
-            </div>
+        with col:
 
-        </div>
+            st.markdown(
+                f"""
+<div class="stat-card">
 
-        <div class="stat">
-
-            <div class="stat-icon">
-                🛣️
-            </div>
-
-            <div class="stat-number">
-                {distance_km:.1f} كم
-            </div>
-
-            <div class="stat-label">
-                المسافة
-            </div>
-
-        </div>
-
-        <div class="stat">
-
-            <div class="stat-icon">
-                ⏱️
-            </div>
-
-            <div class="stat-number">
-                {duration_min} دقيقة
-            </div>
-
-            <div class="stat-label">
-                الوقت التقريبي
-            </div>
-
-        </div>
-
-        <div class="stat">
-
-            <div class="stat-icon">
-                🛗
-            </div>
-
-            <div class="stat-number">
-                {elevator_count}
-            </div>
-
-            <div class="stat-label">
-                مصاعد مسجلة
-            </div>
-
-        </div>
-
+    <div class="stat-icon">
+        {data[0]}
     </div>
-    """, unsafe_allow_html=True)
+
+    <div class="stat-value">
+        {data[1]}
+    </div>
+
+    <div class="stat-label">
+        {data[2]}
+    </div>
+
+</div>
+""",
+                unsafe_allow_html=True
+            )
 
 
-    # =========================
+    st.write("")
+
+
+    # -----------------------------------------------------
     # MAP
-    # =========================
+    # -----------------------------------------------------
 
-    center_lat = (
-        start_location["lat"]
-        + destination_location["lat"]
-    ) / 2
+    map_center = [
+        (
+            start["lat"]
+            + destination["lat"]
+        ) / 2,
 
-    center_lon = (
-        start_location["lon"]
-        + destination_location["lon"]
-    ) / 2
+        (
+            start["lon"]
+            + destination["lon"]
+        ) / 2
+    ]
 
     m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=14,
+        location=map_center,
+        zoom_start=16,
         tiles="OpenStreetMap"
     )
 
-    # Start
+    # START
     folium.Marker(
-        [
-            start_location["lat"],
-            start_location["lon"]
-        ],
+        [start["lat"], start["lon"]],
         tooltip="نقطة البداية",
-        popup=f"البداية<br>{start_location['name']}",
+        popup=folium.Popup(
+            "<b>نقطة البداية</b><br>"
+            + html.escape(start["name"]),
+            max_width=300
+        ),
         icon=folium.Icon(
             color="green",
             icon="play",
@@ -999,14 +1142,15 @@ if result:
         )
     ).add_to(m)
 
-    # Destination
+    # DESTINATION
     folium.Marker(
-        [
-            destination_location["lat"],
-            destination_location["lon"]
-        ],
+        [destination["lat"], destination["lon"]],
         tooltip="الوجهة",
-        popup=f"الوجهة<br>{destination_location['name']}",
+        popup=folium.Popup(
+            "<b>الوجهة</b><br>"
+            + html.escape(destination["name"]),
+            max_width=300
+        ),
         icon=folium.Icon(
             color="red",
             icon="flag",
@@ -1014,30 +1158,38 @@ if result:
         )
     ).add_to(m)
 
-    # Route
-    route_points = [
-        [point[1], point[0]]
-        for point in route["geometry"]["coordinates"]
-    ]
 
-    folium.PolyLine(
-        route_points,
-        color="#7657ff",
-        weight=7,
-        opacity=0.85,
-        tooltip="المسار المفضل"
-    ).add_to(m)
+    # ROUTE
+    if route:
 
-    # Elevators
-    for point in accessibility["elevators"]:
+        points = [
+            [p[1], p[0]]
+            for p in route["geometry"]["coordinates"]
+        ]
+
+        folium.PolyLine(
+            points,
+            color="#7657ff",
+            weight=7,
+            opacity=.88,
+            tooltip="المسار المقترح"
+        ).add_to(m)
+
+
+    # -----------------------------------------------------
+    # OUTDOOR MARKERS
+    # -----------------------------------------------------
+
+    for p in outdoor["elevators"]:
 
         folium.Marker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
             tooltip="🛗 مصعد",
-            popup="مصعد مسجل على الخريطة",
+            popup=folium.Popup(
+                "<b>🛗 مصعد</b><br>"
+                "مصعد مسجل في بيانات الخريطة.",
+                max_width=280
+            ),
             icon=folium.Icon(
                 color="blue",
                 icon="arrow-up",
@@ -1045,16 +1197,17 @@ if result:
             )
         ).add_to(m)
 
-    # Ramps
-    for point in accessibility["ramps"]:
+
+    for p in outdoor["ramps"]:
 
         folium.Marker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
             tooltip="🛝 منحدر",
-            popup="منحدر مسجل للوصول",
+            popup=folium.Popup(
+                "<b>🛝 منحدر</b><br>"
+                "منحدر مسجل في بيانات الخريطة.",
+                max_width=280
+            ),
             icon=folium.Icon(
                 color="green",
                 icon="road",
@@ -1062,32 +1215,17 @@ if result:
             )
         ).add_to(m)
 
-    # Wheelchair yes
-    for point in accessibility["wheelchair_yes"]:
 
-        folium.CircleMarker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
-            radius=7,
-            color="#00a884",
-            fill=True,
-            fill_opacity=0.85,
-            tooltip="♿ وصول مهيأ",
-            popup="المكان مسجل كمتاح للكراسي المتحركة"
-        ).add_to(m)
-
-    # Stairs
-    for point in accessibility["stairs"]:
+    for p in outdoor["stairs"]:
 
         folium.Marker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
             tooltip="🚫 درج",
-            popup="يوجد درج مسجل هنا",
+            popup=folium.Popup(
+                "<b>🚫 درج</b><br>"
+                "يوجد درج مسجل في هذه المنطقة.",
+                max_width=280
+            ),
             icon=folium.Icon(
                 color="red",
                 icon="warning-sign",
@@ -1095,32 +1233,51 @@ if result:
             )
         ).add_to(m)
 
-    # Wheelchair no
-    for point in accessibility["wheelchair_no"]:
+
+    for p in outdoor["wheelchair_yes"]:
 
         folium.CircleMarker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
+            radius=7,
+            color="#00a884",
+            fill=True,
+            fill_opacity=.9,
+            tooltip="♿ وصول مهيأ",
+            popup=folium.Popup(
+                "<b>♿ وصول مهيأ</b><br>"
+                "المكان مسجل كمتاح للكراسي المتحركة.",
+                max_width=280
+            )
+        ).add_to(m)
+
+
+    for p in outdoor["wheelchair_no"]:
+
+        folium.CircleMarker(
+            [p["lat"], p["lon"]],
             radius=8,
             color="#e5484d",
             fill=True,
-            fill_opacity=0.85,
+            fill_opacity=.9,
             tooltip="⚠️ غير مهيأ",
-            popup="المكان مسجل كغير مناسب للكراسي المتحركة"
+            popup=folium.Popup(
+                "<b>⚠️ غير مهيأ</b><br>"
+                "المكان مسجل كغير مناسب للكراسي المتحركة.",
+                max_width=280
+            )
         ).add_to(m)
 
-    # Toilets
-    for point in accessibility["toilets"]:
+
+    for p in outdoor["toilets"]:
 
         folium.Marker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
             tooltip="🚻 دورة مياه مهيأة",
-            popup="دورة مياه مهيأة مسجلة",
+            popup=folium.Popup(
+                "<b>🚻 دورة مياه مهيأة</b><br>"
+                "دورة مياه مسجلة كمتاحة للكراسي المتحركة.",
+                max_width=300
+            ),
             icon=folium.Icon(
                 color="purple",
                 icon="home",
@@ -1128,16 +1285,17 @@ if result:
             )
         ).add_to(m)
 
-    # Parking
-    for point in accessibility["parking"]:
+
+    for p in outdoor["parking"]:
 
         folium.Marker(
-            [
-                point["lat"],
-                point["lon"]
-            ],
+            [p["lat"], p["lon"]],
             tooltip="🅿️ موقف مهيأ",
-            popup="موقف مهيأ مسجل",
+            popup=folium.Popup(
+                "<b>🅿️ موقف مهيأ</b><br>"
+                "موقف مسجل كمتاح للكراسي المتحركة.",
+                max_width=300
+            ),
             icon=folium.Icon(
                 color="orange",
                 icon="parking",
@@ -1145,205 +1303,645 @@ if result:
             )
         ).add_to(m)
 
-    # =========================
-    # MAP CARD
-    # =========================
 
-    st.markdown("""
-    <div class="map-card">
+    # -----------------------------------------------------
+    # INDOOR MARKERS
+    # -----------------------------------------------------
 
-        <div class="map-title">
-            🗺️ خريطة الوصول
+    # Entrances
+    for p in indoor["entrances"]:
+
+        tags = p["tags"]
+
+        wheelchair = tags.get("wheelchair")
+
+        if wheelchair == "yes":
+            title = "🚪 مدخل مهيأ"
+            description = "مدخل مسجل كمتاح للكراسي المتحركة."
+            color = "green"
+
+        else:
+            title = "🚪 مدخل"
+            description = "مدخل مسجل للمبنى."
+            color = "cadetblue"
+
+        folium.Marker(
+            [p["lat"], p["lon"]],
+            tooltip=title,
+            popup=folium.Popup(
+                f"<b>{title}</b><br>{description}",
+                max_width=300
+            ),
+            icon=folium.Icon(
+                color=color,
+                icon="sign-in",
+                prefix="fa"
+            )
+        ).add_to(m)
+
+
+    # Indoor elevators
+    for p in indoor["elevators"]:
+
+        level = p["tags"].get("level", "غير محدد")
+
+        folium.Marker(
+            [p["lat"], p["lon"]],
+            tooltip="🛗 مصعد داخلي",
+            popup=folium.Popup(
+                "<b>🛗 مصعد داخلي</b><br>"
+                f"الطابق المسجل: {html.escape(str(level))}",
+                max_width=300
+            ),
+            icon=folium.Icon(
+                color="blue",
+                icon="arrow-up",
+                prefix="fa"
+            )
+        ).add_to(m)
+
+
+    # Indoor stairs
+    for p in indoor["stairs"]:
+
+        level = p["tags"].get("level", "غير محدد")
+
+        folium.Marker(
+            [p["lat"], p["lon"]],
+            tooltip="🪜 درج داخلي",
+            popup=folium.Popup(
+                "<b>🪜 درج داخلي</b><br>"
+                f"الطابق المسجل: {html.escape(str(level))}",
+                max_width=300
+            ),
+            icon=folium.Icon(
+                color="red",
+                icon="warning-sign",
+                prefix="glyphicon"
+            )
+        ).add_to(m)
+
+
+    # Rooms
+    for p in indoor["rooms"]:
+
+        tags = p["tags"]
+
+        name = (
+            tags.get("name")
+            or tags.get("ref")
+            or "مكان داخلي"
+        )
+
+        level = tags.get(
+            "level",
+            "غير محدد"
+        )
+
+        wheelchair = tags.get(
+            "wheelchair",
+            "غير محدد"
+        )
+
+        folium.CircleMarker(
+            [p["lat"], p["lon"]],
+            radius=6,
+            color="#7657ff",
+            fill=True,
+            fill_opacity=.85,
+            tooltip=f"📍 {name}",
+            popup=folium.Popup(
+                "<b>📍 مكان داخلي</b><br>"
+                f"<b>الاسم:</b> {html.escape(str(name))}<br>"
+                f"<b>الطابق:</b> {html.escape(str(level))}<br>"
+                f"<b>الوصول:</b> {html.escape(str(wheelchair))}",
+                max_width=320
+            )
+        ).add_to(m)
+
+
+    # Indoor toilets
+    for p in indoor["toilets"]:
+
+        level = p["tags"].get(
+            "level",
+            "غير محدد"
+        )
+
+        wheelchair = p["tags"].get(
+            "wheelchair",
+            "غير محدد"
+        )
+
+        folium.Marker(
+            [p["lat"], p["lon"]],
+            tooltip="🚻 دورة مياه داخلية",
+            popup=folium.Popup(
+                "<b>🚻 دورة مياه</b><br>"
+                f"<b>الطابق:</b> {html.escape(str(level))}<br>"
+                f"<b>الوصول:</b> {html.escape(str(wheelchair))}",
+                max_width=300
+            ),
+            icon=folium.Icon(
+                color="purple",
+                icon="home",
+                prefix="glyphicon"
+            )
+        ).add_to(m)
+
+
+    # -----------------------------------------------------
+    # MAP DISPLAY
+    # -----------------------------------------------------
+
+    st.markdown(
+        """
+<div class="map-container">
+
+    <div class="map-heading">
+
+        <div class="map-heading-title">
+            🗺️ خريطة الوصول الذكية
         </div>
 
-        <div class="map-subtitle">
-            العلامات على الخريطة توضح نقاط الوصول والعوائق
-            المسجلة في بيانات OpenStreetMap.
+        <div class="map-heading-text">
+            اضغط على أي علامة لمعرفة معناها والمعلومات المسجلة عنها.
         </div>
 
     </div>
-    """, unsafe_allow_html=True)
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
     st_folium(
         m,
         width=None,
-        height=620,
+        height=650,
         returned_objects=[]
     )
 
 
-    # =========================
-    # LEGEND + ANALYSIS
-    # =========================
+    # =====================================================
+    # INDOOR SECTION
+    # =====================================================
 
-    col1, col2 = st.columns([1.15, 0.85])
+    st.write("")
 
-    with col1:
+    st.markdown(
+        """
+<div class="info-card">
 
-        st.markdown("""
-        <div class="info-card">
-
-            <div class="card-title">
-                🗺️ دليل العلامات
-            </div>
-
-            <div class="card-subtitle">
-                معنى كل علامة تظهر على الخريطة
-            </div>
-
-            <div class="legend">
-
-                <div class="legend-item">
-                    <span class="legend-icon">🟣</span>
-                    <span>
-                        <b>المسار المفضل</b><br>
-                        الطريق الذي يقترحه النظام
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">🛗</span>
-                    <span>
-                        <b>مصعد</b><br>
-                        مصعد مسجل على الخريطة
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">🛝</span>
-                    <span>
-                        <b>منحدر</b><br>
-                        منحدر مسجل للوصول
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">♿</span>
-                    <span>
-                        <b>وصول مهيأ</b><br>
-                        موقع مسجل كمتاح للكراسي المتحركة
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">🚫</span>
-                    <span>
-                        <b>درج</b><br>
-                        وجود درج مسجل في المنطقة
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">⚠️</span>
-                    <span>
-                        <b>غير مهيأ</b><br>
-                        موقع مسجل كغير مناسب
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">🚻</span>
-                    <span>
-                        <b>دورة مياه</b><br>
-                        دورة مياه مهيأة مسجلة
-                    </span>
-                </div>
-
-                <div class="legend-item">
-                    <span class="legend-icon">🅿️</span>
-                    <span>
-                        <b>موقف مهيأ</b><br>
-                        موقف مخصص أو مهيأ مسجل
-                    </span>
-                </div>
-
-            </div>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-
-    with col2:
-
-        if len(accessibility["stairs"]) == 0 and score >= 80:
-
-            status_title = "♿ المسار يبدو مناسبًا بدرجة جيدة."
-
-            status_text = (
-                "لم يتم العثور على درجات قريبة من المسار "
-                "ضمن بيانات الخريطة المتاحة، مع وجود مؤشرات "
-                "وصول مهيأة."
-            )
-
-        elif len(accessibility["stairs"]) > 0:
-
-            status_title = "⚠️ انتبه: توجد عوائق مسجلة."
-
-            status_text = (
-                f"تم العثور على {len(accessibility['stairs'])} "
-                "نقطة مرتبطة بالدرجات ضمن المنطقة التي تم فحصها. "
-                "تحقق من العلامات على الخريطة قبل بدء الرحلة."
-            )
-
-        else:
-
-            status_title = "ℹ️ بيانات الوصول محدودة."
-
-            status_text = (
-                "لم يتم العثور على معلومات كافية لتأكيد "
-                "جميع عناصر الإتاحة حول المسار. "
-                "هذا لا يعني بالضرورة أن المكان غير مهيأ."
-            )
-
-        st.markdown(f"""
-        <div class="info-card">
-
-            <div class="card-title">
-                ♿ تحليل المسار
-            </div>
-
-            <div class="card-subtitle">
-                تقييم مبني على بيانات الوصول المتاحة
-            </div>
-
-            <div class="route-analysis">
-
-                <div class="route-status">
-                    {status_title}
-                </div>
-
-                <div class="route-text">
-                    {status_text}
-                </div>
-
-            </div>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-
-    # =========================
-    # AI ANALYSIS
-    # =========================
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="info-card">
-
-        <div class="card-title">
-            ✨ المساعد الذكي للمسار
-        </div>
-
-        <div class="card-subtitle">
-            اسأل VerifyAI عن المسار والعلامات الظاهرة على الخريطة.
-        </div>
-
+    <div class="info-title">
+        🏢 الوصول داخل المبنى
     </div>
-    """, unsafe_allow_html=True)
+
+    <div class="info-subtitle">
+        معلومات داخلية من بيانات الخرائط المتوفرة للمكان.
+    </div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+
+    indoor_available = (
+        len(indoor["buildings"]) > 0
+        or len(indoor["rooms"]) > 0
+        or len(indoor["elevators"]) > 0
+        or len(indoor["corridors"]) > 0
+        or len(indoor["levels"]) > 0
+    )
+
+
+    if indoor_available:
+
+        st.markdown(
+            """
+<div class="indoor-box">
+
+    <div class="indoor-title">
+        🟢 توجد بيانات داخلية لهذا المكان
+    </div>
+
+    <div class="indoor-text">
+        تم العثور على عناصر داخلية مسجلة في الخريطة.
+        يمكنك رؤية المداخل والمصاعد والغرف والطوابق
+        المتوفرة على الخريطة.
+    </div>
+
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+        st.write("")
+
+
+        indoor_cols = st.columns(4)
+
+        indoor_stats = [
+            (
+                "🚪",
+                len(indoor["entrances"]),
+                "مداخل"
+            ),
+            (
+                "🛗",
+                len(indoor["elevators"]),
+                "مصاعد"
+            ),
+            (
+                "📍",
+                len(indoor["rooms"]),
+                "أماكن داخلية"
+            ),
+            (
+                "🪜",
+                len(indoor["stairs"]),
+                "سلالم"
+            )
+        ]
+
+        for col, stat in zip(
+            indoor_cols,
+            indoor_stats
+        ):
+
+            with col:
+
+                st.markdown(
+                    f"""
+<div class="stat-card">
+
+    <div class="stat-icon">
+        {stat[0]}
+    </div>
+
+    <div class="stat-value">
+        {stat[1]}
+    </div>
+
+    <div class="stat-label">
+        {stat[2]}
+    </div>
+
+</div>
+""",
+                    unsafe_allow_html=True
+                )
+
+
+        # Floors
+        if indoor["levels"]:
+
+            st.write("")
+
+            st.markdown(
+                "### 🏷️ الطوابق المسجلة"
+            )
+
+            st.write(
+                " • ".join(
+                    [f"الطابق {x}" for x in indoor["levels"]]
+                )
+            )
+
+        # Indoor details
+        st.write("")
+
+        detail_cols = st.columns(2)
+
+        with detail_cols[0]:
+
+            st.markdown(
+                """
+<div class="info-card">
+
+    <div class="info-title">
+        🚪 نقاط الدخول
+    </div>
+
+                """,
+                unsafe_allow_html=True
+            )
+
+            if indoor["entrances"]:
+
+                for p in indoor["entrances"][:10]:
+
+                    tags = p["tags"]
+
+                    entrance_type = tags.get(
+                        "entrance",
+                        "مدخل"
+                    )
+
+                    wheelchair = tags.get(
+                        "wheelchair",
+                        "غير محدد"
+                    )
+
+                    level = tags.get(
+                        "level",
+                        "غير محدد"
+                    )
+
+                    st.write(
+                        f"🚪 {entrance_type} — "
+                        f"الوصول: {wheelchair} — "
+                        f"الطابق: {level}"
+                    )
+
+            else:
+
+                st.caption(
+                    "لا توجد مداخل داخلية مفصلة مسجلة."
+                )
+
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True
+            )
+
+
+        with detail_cols[1]:
+
+            st.markdown(
+                """
+<div class="info-card">
+
+    <div class="info-title">
+        📍 الأماكن الداخلية
+    </div>
+
+                """,
+                unsafe_allow_html=True
+            )
+
+            if indoor["rooms"]:
+
+                for p in indoor["rooms"][:12]:
+
+                    tags = p["tags"]
+
+                    name = (
+                        tags.get("name")
+                        or tags.get("ref")
+                        or "مكان داخلي"
+                    )
+
+                    level = tags.get(
+                        "level",
+                        "غير محدد"
+                    )
+
+                    st.write(
+                        f"📍 {name} — "
+                        f"الطابق: {level}"
+                    )
+
+            else:
+
+                st.caption(
+                    "لا توجد غرف أو أماكن داخلية مفصلة مسجلة."
+                )
+
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True
+            )
+
+    else:
+
+        st.markdown(
+            """
+<div class="indoor-box">
+
+    <div class="indoor-title">
+        ⚪ لا توجد بيانات داخلية كافية
+    </div>
+
+    <div class="indoor-text">
+        لم يتم العثور على خريطة داخلية مفصلة لهذا المكان.
+        لذلك لن يخترع VerifyAI Access مواقع الغرف أو المصاعد
+        أو الطوابق. يمكنك الاعتماد فقط على العلامات المسجلة
+        حاليًا على الخريطة.
+    </div>
+
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+
+    # =====================================================
+    # ROUTE ANALYSIS
+    # =====================================================
+
+    st.write("")
+
+    st.markdown(
+        """
+<div class="info-card">
+
+    <div class="info-title">
+        ♿ تقييم المسار
+    </div>
+
+    <div class="info-subtitle">
+        التقييم يعتمد على بيانات الوصول المسجلة، وليس ضمانًا ميدانيًا.
+    </div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+
+    if score >= 80 and len(outdoor["stairs"]) == 0:
+
+        st.success(
+            "المسار يبدو مناسبًا بدرجة جيدة. "
+            "لم يتم العثور على درجات قريبة من المسار "
+            "ضمن البيانات المتاحة."
+        )
+
+    elif len(outdoor["stairs"]) > 0:
+
+        st.warning(
+            f"تم العثور على {len(outdoor['stairs'])} "
+            "نقطة مرتبطة بالدرجات ضمن منطقة المسار. "
+            "تحقق من العلامات على الخريطة قبل الرحلة."
+        )
+
+    else:
+
+        st.info(
+            "بيانات الوصول محدودة. "
+            "عدم وجود علامة لا يعني بالضرورة أن المكان مهيأ."
+        )
+
+
+    # =====================================================
+    # ACCESSIBILITY SUMMARY
+    # =====================================================
+
+    st.write("")
+
+    summary_cols = st.columns(2)
+
+    with summary_cols[0]:
+
+        st.markdown(
+            """
+<div class="info-card">
+
+    <div class="info-title">
+        🧭 عناصر الوصول الخارجية
+    </div>
+
+            """,
+            unsafe_allow_html=True
+        )
+
+        items = [
+            (
+                "🛗",
+                "مصاعد",
+                len(outdoor["elevators"])
+            ),
+            (
+                "🛝",
+                "منحدرات",
+                len(outdoor["ramps"])
+            ),
+            (
+                "♿",
+                "وصول مهيأ",
+                len(outdoor["wheelchair_yes"])
+            ),
+            (
+                "🚫",
+                "درجات",
+                len(outdoor["stairs"])
+            ),
+            (
+                "⚠️",
+                "غير مهيأ",
+                len(outdoor["wheelchair_no"])
+            ),
+            (
+                "🚻",
+                "دورات مياه",
+                len(outdoor["toilets"])
+            ),
+            (
+                "🅿️",
+                "مواقف مهيأة",
+                len(outdoor["parking"])
+            )
+        ]
+
+        for icon, name, count in items:
+
+            st.write(
+                f"{icon} **{name}:** {count}"
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+
+    with summary_cols[1]:
+
+        st.markdown(
+            """
+<div class="info-card">
+
+    <div class="info-title">
+        🏢 عناصر الوصول الداخلية
+    </div>
+
+            """,
+            unsafe_allow_html=True
+        )
+
+        indoor_items = [
+            (
+                "🚪",
+                "مداخل",
+                len(indoor["entrances"])
+            ),
+            (
+                "🛗",
+                "مصاعد داخلية",
+                len(indoor["elevators"])
+            ),
+            (
+                "📍",
+                "أماكن داخلية",
+                len(indoor["rooms"])
+            ),
+            (
+                "🪜",
+                "سلالم داخلية",
+                len(indoor["stairs"])
+            ),
+            (
+                "🚻",
+                "دورات مياه داخلية",
+                len(indoor["toilets"])
+            ),
+            (
+                "🛣️",
+                "ممرات داخلية",
+                len(indoor["corridors"])
+            )
+        ]
+
+        for icon, name, count in indoor_items:
+
+            st.write(
+                f"{icon} **{name}:** {count}"
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+
+    # =====================================================
+    # AI
+    # =====================================================
+
+    st.write("")
+
+    st.markdown(
+        """
+<div class="info-card">
+
+    <div class="info-title">
+        ✨ تحليل VerifyAI
+    </div>
+
+    <div class="info-subtitle">
+        اسأل الذكاء الاصطناعي عن المسار والبيانات الموجودة.
+    </div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
 
     if st.button(
-        "✨ تحليل المسار بالذكاء الاصطناعي",
+        "✨ تحليل المكان والمسار",
         use_container_width=True
     ):
 
@@ -1360,7 +1958,7 @@ if result:
 
             st.warning(
                 "مفتاح OpenAI غير متصل. "
-                "يمكن استخدام الخريطة بدون الذكاء الاصطناعي."
+                "الخريطة والبحث يعملان بدون الذكاء الاصطناعي."
             )
 
         else:
@@ -1374,39 +1972,39 @@ if result:
                 )
 
                 prompt = f"""
-أنت مساعد متخصص في الوصول الشامل والتنقل لمستخدمي الكراسي المتحركة.
+أنت VerifyAI Access، مساعد متخصص في الوصول الشامل.
 
-حلل المعلومات التالية فقط:
+حلل البيانات التالية فقط:
 
-مؤشر الإتاحة: {score}/100
+المسار:
+مؤشر الإتاحة = {score}/100
 
-عدد المصاعد:
-{len(accessibility["elevators"])}
+البيانات الخارجية:
+مصاعد = {len(outdoor["elevators"])}
+منحدرات = {len(outdoor["ramps"])}
+درجات = {len(outdoor["stairs"])}
+وصول مهيأ = {len(outdoor["wheelchair_yes"])}
+غير مهيأ = {len(outdoor["wheelchair_no"])}
+دورات مياه = {len(outdoor["toilets"])}
+مواقف مهيأة = {len(outdoor["parking"])}
 
-عدد المنحدرات:
-{len(accessibility["ramps"])}
+البيانات الداخلية:
+مبانٍ = {len(indoor["buildings"])}
+مداخل = {len(indoor["entrances"])}
+مصاعد = {len(indoor["elevators"])}
+أماكن داخلية = {len(indoor["rooms"])}
+سلالم = {len(indoor["stairs"])}
+ممرات = {len(indoor["corridors"])}
+دورات مياه = {len(indoor["toilets"])}
+الطوابق المسجلة = {", ".join(indoor["levels"]) if indoor["levels"] else "لا توجد"}
 
-عدد الدرج:
-{len(accessibility["stairs"])}
-
-عدد نقاط الوصول المهيأة:
-{len(accessibility["wheelchair_yes"])}
-
-عدد النقاط غير المهيأة:
-{len(accessibility["wheelchair_no"])}
-
-عدد دورات المياه المهيأة:
-{len(accessibility["toilets"])}
-
-عدد المواقف المهيأة:
-{len(accessibility["parking"])}
-
-قواعد مهمة:
-- لا تقل إن المسار مضمون 100%.
-- لا تخترع أي معلومة غير موجودة.
-- وضح أن البيانات تعتمد على المعلومات المسجلة في الخريطة.
-- اشرح للمستخدم معنى أهم العلامات.
-- أعطِ خلاصة قصيرة وواضحة باللغة العربية.
+القواعد:
+1. لا تقل إن المكان مضمون أو مناسب 100%.
+2. لا تخترع غرفة أو طابق أو مصعد.
+3. إذا لم توجد بيانات داخلية، قل ذلك بوضوح.
+4. اشرح معنى العلامات المهمة للمستخدم.
+5. اذكر أن البيانات تعتمد على OpenStreetMap وقد تكون ناقصة أو قديمة.
+6. أعطِ إجابة عربية قصيرة وواضحة.
 """
 
                 response = client.responses.create(
@@ -1416,34 +2014,31 @@ if result:
 
                 st.session_state.ai_answer = response.output_text
 
-            except Exception as e:
+            except Exception as error:
 
                 st.error(
-                    f"حدث خطأ أثناء تشغيل الذكاء الاصطناعي: {e}"
+                    f"حدث خطأ أثناء تشغيل الذكاء الاصطناعي: {error}"
                 )
+
 
     if st.session_state.ai_answer:
 
-        st.markdown(
-            f"""
-            <div class="route-analysis">
-                <div class="route-text">
-                    {st.session_state.ai_answer}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.info(
+            st.session_state.ai_answer
         )
 
 
-# =========================
+# =========================================================
 # FOOTER
-# =========================
+# =========================================================
 
-st.markdown("""
+st.markdown(
+    """
 <div class="footer">
     VerifyAI Access — Smart Accessibility Navigation
     <br>
-    صُمم لجعل الوصول أكثر وضوحًا واستقلالية للجميع.
+    الوصول للجميع، بوضوح واستقلالية.
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
