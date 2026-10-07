@@ -1,3 +1,5 @@
 streamlit
+requests
+folium
+streamlit-folium
 openai
-Pillow
