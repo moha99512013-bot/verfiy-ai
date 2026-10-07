@@ -1,62 +1,81 @@
 import os
-import io
-import base64
+import math
+import requests
 import streamlit as st
-from PIL import Image
-from openai import OpenAI
+import folium
+
+from streamlit_folium import st_folium
+
 
 # =========================================================
-# VerifyAI Access
+# VERIFYAI ACCESS
+# Wheelchair-first accessibility navigation
 # =========================================================
 
 st.set_page_config(
     page_title="VerifyAI Access",
     page_icon="♿",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
-# =========================================================
-# OpenAI
-# =========================================================
+# ---------------------------------------------------------
+# SETTINGS
+# ---------------------------------------------------------
 
-api_key = os.getenv("OPENAI_API_KEY")
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-if not api_key:
-    try:
-        api_key = st.secrets["OPENAI_API_KEY"]
-    except Exception:
-        api_key = None
+HEADERS = {
+    "User-Agent": "VerifyAI-Access/1.0 accessibility-navigation"
+}
 
-client = OpenAI(api_key=api_key) if api_key else None
+WHEELCHAIR_PROFILE = "♿ Wheelchair"
 
-MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-5.6-luna"
-)
 
 # =========================================================
-# Session State
+# SESSION STATE
 # =========================================================
 
-if "result" not in st.session_state:
-    st.session_state.result = None
+if "route_result" not in st.session_state:
+    st.session_state.route_result = None
 
-if "score" not in st.session_state:
-    st.session_state.score = None
+if "ai_answer" not in st.session_state:
+    st.session_state.ai_answer = None
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "start_text" not in st.session_state:
+    st.session_state.start_text = ""
+
+if "destination_text" not in st.session_state:
+    st.session_state.destination_text = ""
+
 
 # =========================================================
-# Design
+# PAGE STYLE
 # =========================================================
 
 st.markdown(
     """
     <style>
 
+    /* ==============================
+       GLOBAL
+    ============================== */
+
     .stApp {
-        background: #ffffff;
+        background:
+            radial-gradient(
+                circle at 0% 0%,
+                rgba(104, 92, 255, 0.12),
+                transparent 27%
+            ),
+            radial-gradient(
+                circle at 100% 0%,
+                rgba(25, 190, 170, 0.11),
+                transparent 27%
+            ),
+            #f7f9fc;
+
         color: #172033;
     }
 
@@ -65,248 +84,431 @@ st.markdown(
     }
 
     .block-container {
-        max-width: 1150px;
-        padding-top: 25px;
+        max-width: 1450px;
+        padding-top: 18px;
         padding-bottom: 70px;
     }
 
-    /* Header */
+    /* ==============================
+       BRAND
+    ============================== */
 
     .topbar {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        padding: 8px 5px 25px 5px;
-    }
-
-    .logo {
-        font-size: 25px;
-        font-weight: 900;
-        color: #172033;
-    }
-
-    .logo span {
-        color: #6c63ff;
-    }
-
-    .status {
-        background: #eefbf4;
-        color: #20a464;
-        border-radius: 30px;
-        padding: 8px 15px;
-        font-size: 13px;
-        font-weight: 700;
-    }
-
-    /* Hero */
-
-    .hero {
-        text-align: center;
-        padding: 65px 20px 45px;
-    }
-
-    .hero h1 {
-        font-size: 52px;
-        line-height: 1.15;
-        font-weight: 900;
-        color: #172033;
+        align-items: center;
         margin-bottom: 18px;
     }
 
-    .hero h1 .purple {
-        color: #6c63ff;
+    .brand {
+        font-size: 29px;
+        font-weight: 950;
+        letter-spacing: -1.3px;
+        color: #151a2b;
     }
 
-    .hero h1 .blue {
-        color: #20aee8;
+    .brand span {
+        color: #675cf5;
+    }
+
+    .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #e9faf2;
+        color: #16885b;
+        padding: 9px 15px;
+        border-radius: 50px;
+        font-size: 12px;
+        font-weight: 850;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #20bf79;
+    }
+
+    /* ==============================
+       HERO
+    ============================== */
+
+    .hero {
+        position: relative;
+        overflow: hidden;
+        padding: 65px 58px;
+        border-radius: 36px;
+
+        background:
+            linear-gradient(
+                120deg,
+                #ffffff 0%,
+                #f2efff 50%,
+                #e9fbff 100%
+            );
+
+        border: 1px solid #e5e9f1;
+
+        box-shadow:
+            0 30px 80px rgba(
+                45,
+                55,
+                90,
+                0.10
+            );
+    }
+
+    .hero:before {
+        content: "";
+        position: absolute;
+        width: 330px;
+        height: 330px;
+        right: -120px;
+        top: -130px;
+        border-radius: 50%;
+        background: rgba(
+            103,
+            92,
+            245,
+            0.10
+        );
+    }
+
+    .hero:after {
+        content: "";
+        position: absolute;
+        width: 180px;
+        height: 180px;
+        right: 170px;
+        bottom: -110px;
+        border-radius: 50%;
+        background: rgba(
+            28,
+            190,
+            170,
+            0.09
+        );
+    }
+
+    .hero-content {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-tag {
+        display: inline-block;
+        padding: 8px 13px;
+        border-radius: 50px;
+        background: rgba(
+            103,
+            92,
+            245,
+            0.09
+        );
+        color: #5b50df;
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 18px;
+    }
+
+    .hero h1 {
+        margin: 0;
+        font-size: 61px;
+        line-height: 1.02;
+        letter-spacing: -2.7px;
+        font-weight: 950;
+        color: #151a2b;
+    }
+
+    .hero h1 span {
+        background:
+            linear-gradient(
+                90deg,
+                #665cf5,
+                #18aee7,
+                #20b878
+            );
+
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
 
     .hero p {
-        color: #667085 !important;
-        font-size: 18px;
-        line-height: 1.8;
-        max-width: 720px;
-        margin: auto;
+        max-width: 760px;
+        margin-top: 20px;
+        color: #697386 !important;
+        font-size: 17px;
+        line-height: 1.85;
     }
 
-    /* Feature Cards */
+    /* ==============================
+       SEARCH PANEL
+    ============================== */
 
-    .feature-row {
-        display: flex;
-        gap: 14px;
-        margin: 15px 0 30px;
+    .search-panel {
+        position: relative;
+        z-index: 10;
+        margin-top: -30px;
+        padding: 25px;
+        border-radius: 27px;
+        background: #ffffff;
+        border: 1px solid #e5e9f1;
+        box-shadow:
+            0 22px 60px rgba(
+                35,
+                45,
+                75,
+                0.12
+            );
     }
 
-    .feature {
-        flex: 1;
-        padding: 20px;
-        border-radius: 20px;
-        font-weight: 800;
-        font-size: 15px;
+    .search-heading {
+        font-size: 22px;
+        font-weight: 950;
+        color: #171c2c;
     }
 
-    .feature p {
-        margin: 7px 0 0;
-        font-weight: 500;
+    .search-subheading {
+        margin-top: 4px;
+        margin-bottom: 18px;
+        color: #7a8495;
         font-size: 13px;
     }
 
-    .purple-card {
-        background: #f1efff;
-        color: #665ce6;
+    .stTextInput input {
+        height: 52px !important;
+        border-radius: 15px !important;
+        border: 1px solid #dfe4ee !important;
+        background: #fbfcff !important;
+        font-size: 14px !important;
     }
 
-    .blue-card {
-        background: #eaf8ff;
-        color: #1699d0;
+    .stTextInput input:focus {
+        border-color: #6b60f5 !important;
+        box-shadow:
+            0 0 0 3px rgba(
+                107,
+                96,
+                245,
+                0.10
+            ) !important;
     }
-
-    .green-card {
-        background: #eafaf1;
-        color: #20a464;
-    }
-
-    .orange-card {
-        background: #fff5e8;
-        color: #ed921c;
-    }
-
-    /* Main Card */
-
-    .main-card {
-        background: #ffffff;
-        border: 1px solid #e9edf4;
-        box-shadow: 0 12px 40px rgba(39, 52, 77, 0.08);
-        border-radius: 25px;
-        padding: 30px;
-        margin-top: 20px;
-    }
-
-    .section-title {
-        font-size: 21px;
-        font-weight: 850;
-        color: #172033;
-        margin-bottom: 5px;
-    }
-
-    .section-subtitle {
-        color: #7a8495;
-        font-size: 14px;
-        margin-bottom: 20px;
-    }
-
-    /* Upload */
-
-    [data-testid="stFileUploader"] {
-        background: #f8faff;
-        border: 2px dashed #cdd5e1;
-        border-radius: 20px;
-        padding: 12px;
-    }
-
-    [data-testid="stFileUploader"]:hover {
-        border-color: #6c63ff;
-        background: #faf9ff;
-    }
-
-    /* Buttons */
 
     .stButton > button {
-        width: 100%;
-        height: 54px;
+        height: 52px;
+        border: 0;
         border-radius: 15px;
-        border: none;
-        background: linear-gradient(
-            90deg,
-            #6c63ff,
-            #20aee8
-        );
-        color: white;
-        font-size: 16px;
-        font-weight: 800;
-        box-shadow: 0 8px 20px rgba(
-            108,
-            99,
-            255,
-            0.22
-        );
+
+        color: #ffffff;
+
+        font-size: 15px;
+        font-weight: 900;
+
+        background:
+            linear-gradient(
+                100deg,
+                #675cf5,
+                #20aee8
+            );
+
+        box-shadow:
+            0 11px 28px rgba(
+                103,
+                92,
+                245,
+                0.24
+            );
+
+        transition:
+            transform 0.2s ease,
+            box-shadow 0.2s ease;
     }
 
     .stButton > button:hover {
-        color: white;
+        transform: translateY(-2px);
+
+        box-shadow:
+            0 16px 34px rgba(
+                103,
+                92,
+                245,
+                0.30
+            );
     }
 
-    /* Results */
+    /* ==============================
+       MAP HEADER
+    ============================== */
 
-    .result-card {
-        background: #f8faff;
-        border: 1px solid #e7ebf3;
-        border-radius: 22px;
-        padding: 25px;
+    .section-title {
+        margin-top: 35px;
+        font-size: 28px;
+        font-weight: 950;
+        letter-spacing: -0.7px;
+        color: #171c2c;
+    }
+
+    .section-subtitle {
+        margin-top: 4px;
+        margin-bottom: 15px;
+        color: #7b8495;
+        font-size: 14px;
+    }
+
+    /* ==============================
+       STATS
+    ============================== */
+
+    .stats {
+        display: grid;
+        grid-template-columns:
+            repeat(4, 1fr);
+
+        gap: 14px;
+
         margin-top: 18px;
     }
 
-    .problem-card {
-        background: #fff7f5;
-        border-left: 5px solid #ff6b6b;
-        border-radius: 16px;
-        padding: 18px;
-        margin-top: 12px;
+    .stat {
+        padding: 20px;
+        border-radius: 21px;
+        background: #ffffff;
+        border: 1px solid #e7eaf1;
+
+        box-shadow:
+            0 10px 28px rgba(
+                35,
+                45,
+                75,
+                0.06
+            );
     }
 
-    .solution-card {
-        background: #effbf5;
-        border-left: 5px solid #25b874;
-        border-radius: 16px;
-        padding: 18px;
-        margin-top: 12px;
-    }
-
-    .ai-card {
-        background: #f1efff;
-        border-left: 5px solid #6c63ff;
-        border-radius: 16px;
-        padding: 18px;
-        margin-top: 12px;
-    }
-
-    /* Score */
-
-    .score-box {
-        text-align: center;
-        background: linear-gradient(
-            145deg,
-            #f1efff,
-            #eaf8ff
-        );
-        border-radius: 22px;
-        padding: 25px;
-    }
-
-    .score-number {
-        font-size: 58px;
-        font-weight: 900;
-        color: #6c63ff;
-    }
-
-    .score-label {
-        color: #687386;
-        font-size: 13px;
-    }
-
-    /* Chat */
-
-    .chat-title {
+    .stat-icon {
         font-size: 25px;
-        font-weight: 900;
-        color: #172033;
-        margin-top: 45px;
     }
 
-    /* Images */
+    .stat-number {
+        margin-top: 7px;
+        font-size: 25px;
+        font-weight: 950;
+        color: #171c2c;
+    }
 
-    img {
-        border-radius: 18px;
+    .stat-label {
+        margin-top: 2px;
+        color: #7c8595;
+        font-size: 12px;
+    }
+
+    /* ==============================
+       AI PANEL
+    ============================== */
+
+    .ai-panel {
+        margin-top: 25px;
+        padding: 28px;
+        border-radius: 27px;
+
+        background:
+            linear-gradient(
+                135deg,
+                #f1efff,
+                #edfbff
+            );
+
+        border: 1px solid #ddd9ff;
+    }
+
+    .ai-title {
+        font-size: 22px;
+        font-weight: 950;
+        color: #554ad9;
+    }
+
+    .ai-subtitle {
+        margin-top: 5px;
+        color: #687386;
+        font-size: 14px;
+    }
+
+    /* ==============================
+       WARNING
+    ============================== */
+
+    .warning-box {
+        margin-top: 18px;
+        padding: 18px 20px;
+        border-radius: 17px;
+        background: #fff9eb;
+        border: 1px solid #f3dfac;
+        color: #725c20;
+        font-size: 13px;
+        line-height: 1.7;
+    }
+
+    .success-box {
+        margin-top: 18px;
+        padding: 18px 20px;
+        border-radius: 17px;
+        background: #edf9f3;
+        border: 1px solid #cbeedb;
+        color: #176b4b;
+        font-size: 13px;
+        line-height: 1.7;
+    }
+
+    /* ==============================
+       LEGEND
+    ============================== */
+
+    .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 14px;
+    }
+
+    .legend-item {
+        background: #ffffff;
+        border: 1px solid #e4e8ef;
+        padding: 9px 13px;
+        border-radius: 13px;
+        font-size: 12px;
+        font-weight: 750;
+    }
+
+    /* ==============================
+       FOOTER
+    ============================== */
+
+    .footer {
+        margin-top: 60px;
+        text-align: center;
+        color: #a0a8b6;
+        font-size: 12px;
+    }
+
+    /* ==============================
+       MOBILE
+    ============================== */
+
+    @media (max-width: 800px) {
+
+        .hero {
+            padding: 40px 25px;
+        }
+
+        .hero h1 {
+            font-size: 42px;
+        }
+
+        .stats {
+            grid-template-columns:
+                repeat(2, 1fr);
+        }
+
     }
 
     </style>
@@ -314,20 +516,22 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 # =========================================================
-# Header
+# HEADER
 # =========================================================
 
 st.markdown(
     """
     <div class="topbar">
 
-        <div class="logo">
+        <div class="brand">
             VerifyAI <span>Access</span>
         </div>
 
         <div class="status">
-            ● AI جاهز للتحليل
+            <span class="status-dot"></span>
+            Wheelchair Navigation
         </div>
 
     </div>
@@ -335,65 +539,56 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 # =========================================================
-# Hero
+# HERO
 # =========================================================
 
 st.markdown(
     """
     <div class="hero">
 
-        <h1>
-            اكتشف ما يحتاجه المكان<br>
-            <span class="purple">ليصبح أسهل</span>
-            <span class="blue">للجميع</span>
-        </h1>
+        <div class="hero-content">
 
-        <p>
-            ارفع صورة لأي مكان، ودع الذكاء الاصطناعي
-            يكتشف بنفسه المشاكل والعوائق وما الذي يحتاجه
-            المكان ليصبح أكثر إتاحة وسهولة واستقلالية للجميع.
-        </p>
+            <div class="hero-tag">
+                ♿ AI-POWERED ACCESSIBILITY
+            </div>
+
+            <h1>
+                تحرك بحرية.<br>
+                <span>الوصول للجميع.</span>
+            </h1>
+
+            <p>
+                خريطة ذكية مصممة أولاً للكراسي المتحركة.
+                ابحث عن وجهتك واحصل على مسار يعطي
+                الأولوية للطرق المناسبة، مع إظهار
+                المصاعد والمنحدرات والعوائق المسجلة.
+            </p>
+
+        </div>
 
     </div>
     """,
     unsafe_allow_html=True
 )
 
+
 # =========================================================
-# Features
+# SEARCH PANEL
 # =========================================================
 
 st.markdown(
     """
-    <div class="feature-row">
+    <div class="search-panel">
 
-        <div class="feature purple-card">
-            🔎 يكتشف المشكلة
-            <p>
-                يحلل المكان ويحدد العوائق الظاهرة.
-            </p>
+        <div class="search-heading">
+            🧭 خطط رحلتك
         </div>
 
-        <div class="feature blue-card">
-            💡 يعرف الاحتياج
-            <p>
-                يحدد ما الذي يحتاجه المكان.
-            </p>
-        </div>
-
-        <div class="feature green-card">
-            ✓ يقترح الحل
-            <p>
-                يعطي حلولاً عملية وقابلة للتطبيق.
-            </p>
-        </div>
-
-        <div class="feature orange-card">
-            🤖 يستخدم AI
-            <p>
-                ذكاء اصطناعي لتحليل التجربة.
-            </p>
+        <div class="search-subheading">
+            اختر نقطة البداية والوجهة، وسيتم تقييم
+            المسار من منظور مستخدم الكرسي المتحرك.
         </div>
 
     </div>
@@ -401,297 +596,1306 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# =========================================================
-# Upload Section
-# =========================================================
+col1, col2 = st.columns(2)
 
-st.markdown(
-    """
-    <div class="main-card">
+with col1:
 
-        <div class="section-title">
-            📷 ارفع صورة المكان
-        </div>
+    start = st.text_input(
+        "نقطة البداية",
+        placeholder="مثلاً: جامعة الملك عبدالعزيز، جدة",
+        key="start_text"
+    )
 
-        <div class="section-subtitle">
-            مدخل، مدرسة، شارع، متجر، محطة، ملعب،
-            مبنى أو أي مكان آخر.
-        </div>
+with col2:
 
-    </div>
-    """,
-    unsafe_allow_html=True
+    destination = st.text_input(
+        "الوجهة",
+        placeholder="مثلاً: مستشفى الملك فهد",
+        key="destination_text"
+    )
+
+
+st.caption(
+    "♿ الوضع الحالي: أفضل مسار متاح للكراسي المتحركة"
 )
 
-uploaded = st.file_uploader(
-    "اختر صورة",
-    type=[
-        "png",
-        "jpg",
-        "jpeg",
-        "webp"
-    ],
-    label_visibility="collapsed"
+
+search_button = st.button(
+    "✨ ابحث عن مسار مهيأ",
+    use_container_width=True
 )
 
+
 # =========================================================
-# Image Analysis
+# GEOCODING
 # =========================================================
 
-if uploaded:
+def geocode(place):
 
     try:
 
-        image = Image.open(
-            uploaded
-        ).convert("RGB")
-
-    except Exception:
-
-        st.error(
-            "الصورة غير صالحة."
+        response = requests.get(
+            NOMINATIM_URL,
+            params={
+                "q": place,
+                "format": "json",
+                "limit": 1,
+                "addressdetails": 1,
+            },
+            headers=HEADERS,
+            timeout=20,
         )
 
-        st.stop()
+        response.raise_for_status()
 
-    st.write("")
+        results = response.json()
 
-    st.image(
-        image,
-        use_container_width=True
+        if not results:
+            return None
+
+        result = results[0]
+
+        return {
+            "lat": float(result["lat"]),
+            "lon": float(result["lon"]),
+            "name": result.get(
+                "display_name",
+                place
+            )
+        }
+
+    except Exception:
+        return None
+
+
+# =========================================================
+# HAVERSINE
+# =========================================================
+
+def distance_meters(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
+
+    earth = 6371000
+
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+
+    dp = math.radians(
+        lat2 - lat1
     )
 
-    st.write("")
-
-    analyze = st.button(
-        "✨ اكتشف ما يحتاجه هذا المكان بالذكاء الاصطناعي"
+    dl = math.radians(
+        lon2 - lon1
     )
 
-    if analyze:
+    a = (
+        math.sin(dp / 2) ** 2
+        +
+        math.cos(p1)
+        * math.cos(p2)
+        * math.sin(dl / 2) ** 2
+    )
 
-        if not client:
+    return (
+        2
+        * earth
+        * math.atan2(
+            math.sqrt(a),
+            math.sqrt(1 - a)
+        )
+    )
 
-            st.error(
-                "OPENAI_API_KEY غير موجود. "
-                "أضفه في Secrets ثم أعد تشغيل الموقع."
+
+# =========================================================
+# ACCESSIBILITY DATA
+# =========================================================
+
+def get_accessibility_data(
+    lat,
+    lon,
+    radius=1800
+):
+
+    query = f"""
+    [out:json][timeout:35];
+
+    (
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["highway"="steps"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["highway"="elevator"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["ramp"="yes"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["wheelchair"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["amenity"="toilets"]["wheelchair"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["amenity"="parking"]["wheelchair"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["entrance"="main"]["wheelchair"];
+
+        nwr(
+            around:{radius},
+            {lat},
+            {lon}
+        )["entrance"="yes"]["wheelchair"];
+    );
+
+    out center tags;
+    """
+
+    try:
+
+        response = requests.post(
+            OVERPASS_URL,
+            data=query,
+            headers=HEADERS,
+            timeout=45,
+        )
+
+        response.raise_for_status()
+
+        return response.json().get(
+            "elements",
+            []
+        )
+
+    except Exception:
+        return []
+
+
+# =========================================================
+# NORMAL WALKING ROUTE
+# =========================================================
+
+def get_route(
+    start_lat,
+    start_lon,
+    end_lat,
+    end_lon
+):
+
+    url = (
+        "https://router.project-osrm.org/"
+        "route/v1/foot/"
+        f"{start_lon},{start_lat};"
+        f"{end_lon},{end_lat}"
+    )
+
+    try:
+
+        response = requests.get(
+            url,
+            params={
+                "overview": "full",
+                "geometries": "geojson",
+                "steps": "true",
+                "alternatives": "true",
+            },
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data.get("code") != "Ok":
+            return []
+
+        return data.get(
+            "routes",
+            []
+        )
+
+    except Exception:
+        return []
+
+
+# =========================================================
+# POINT EXTRACTION
+# =========================================================
+
+def get_element_position(element):
+
+    lat = element.get("lat")
+    lon = element.get("lon")
+
+    if lat is not None and lon is not None:
+        return lat, lon
+
+    center = element.get(
+        "center",
+        {}
+    )
+
+    lat = center.get("lat")
+    lon = center.get("lon")
+
+    if lat is None or lon is None:
+        return None
+
+    return lat, lon
+
+
+# =========================================================
+# CLASSIFY ACCESSIBILITY
+# =========================================================
+
+def classify_accessibility(
+    elements
+):
+
+    data = {
+        "stairs": [],
+        "elevators": [],
+        "ramps": [],
+        "wheelchair_yes": [],
+        "wheelchair_limited": [],
+        "wheelchair_no": [],
+        "toilets": [],
+        "parking": [],
+        "entrances": [],
+    }
+
+    for element in elements:
+
+        tags = element.get(
+            "tags",
+            {}
+        )
+
+        position = get_element_position(
+            element
+        )
+
+        if position is None:
+            continue
+
+        lat, lon = position
+
+        item = {
+            "lat": lat,
+            "lon": lon,
+            "tags": tags
+        }
+
+        highway = tags.get(
+            "highway",
+            ""
+        )
+
+        wheelchair = tags.get(
+            "wheelchair",
+            ""
+        ).lower()
+
+        amenity = tags.get(
+            "amenity",
+            ""
+        )
+
+        entrance = tags.get(
+            "entrance",
+            ""
+        )
+
+        ramp = tags.get(
+            "ramp",
+            ""
+        ).lower()
+
+        if highway == "steps":
+            data["stairs"].append(item)
+
+        if (
+            highway == "elevator"
+            or tags.get("elevator") == "yes"
+        ):
+            data["elevators"].append(item)
+
+        if ramp == "yes":
+            data["ramps"].append(item)
+
+        if wheelchair == "yes":
+            data["wheelchair_yes"].append(item)
+
+        elif wheelchair == "limited":
+            data["wheelchair_limited"].append(item)
+
+        elif wheelchair == "no":
+            data["wheelchair_no"].append(item)
+
+        if (
+            amenity == "toilets"
+            and wheelchair in [
+                "yes",
+                "limited"
+            ]
+        ):
+            data["toilets"].append(item)
+
+        if (
+            amenity == "parking"
+            and wheelchair in [
+                "yes",
+                "designated",
+                "limited"
+            ]
+        ):
+            data["parking"].append(item)
+
+        if (
+            entrance
+            and wheelchair in [
+                "yes",
+                "limited"
+            ]
+        ):
+            data["entrances"].append(item)
+
+    return data
+
+
+# =========================================================
+# ROUTE ACCESSIBILITY SCORE
+# =========================================================
+
+def score_route(
+    route,
+    accessibility
+):
+
+    coordinates = route[
+        "geometry"
+    ]["coordinates"]
+
+    score = 100
+
+    nearby_stairs = 0
+    nearby_good_points = 0
+    nearby_bad_points = 0
+
+    # ---------------------------------------------
+    # Check route against accessibility features
+    # ---------------------------------------------
+
+    route_points = []
+
+    # Sample route so we don't calculate thousands
+    # of points.
+
+    step = max(
+        1,
+        len(coordinates) // 80
+    )
+
+    for point in coordinates[::step]:
+
+        lon, lat = point
+
+        route_points.append(
+            (lat, lon)
+        )
+
+    # ---------------------------------------------
+    # Stairs
+    # ---------------------------------------------
+
+    for item in accessibility["stairs"]:
+
+        for lat, lon in route_points:
+
+            d = distance_meters(
+                lat,
+                lon,
+                item["lat"],
+                item["lon"]
             )
 
-        else:
+            if d <= 45:
 
-            with st.spinner(
-                "الذكاء الاصطناعي يفحص المكان..."
-            ):
+                nearby_stairs += 1
+                break
 
-                try:
+    # ---------------------------------------------
+    # Wheelchair-friendly points
+    # ---------------------------------------------
 
-                    # Resize image
-                    image.thumbnail(
-                        (1600, 1600),
-                        Image.Resampling.LANCZOS
-                    )
+    good_items = (
+        accessibility["wheelchair_yes"]
+        +
+        accessibility["ramps"]
+        +
+        accessibility["elevators"]
+        +
+        accessibility["entrances"]
+    )
 
-                    # Convert image to JPEG
-                    buffer = io.BytesIO()
+    for item in good_items:
 
-                    image.save(
-                        buffer,
-                        format="JPEG",
-                        quality=85
-                    )
+        for lat, lon in route_points:
 
-                    # Encode image
-                    encoded = base64.b64encode(
-                        buffer.getvalue()
-                    ).decode("utf-8")
+            d = distance_meters(
+                lat,
+                lon,
+                item["lat"],
+                item["lon"]
+            )
 
-                    # AI instructions
-                    prompt = """
-أنت VerifyAI Access، خبير في التصميم الشامل
-وإمكانية الوصول.
+            if d <= 80:
 
-حلل الصورة المرفقة بنفسك.
+                nearby_good_points += 1
+                break
 
-مهم جداً:
+    # ---------------------------------------------
+    # Wheelchair=no
+    # ---------------------------------------------
 
-لا أريد من المستخدم اختيار نوع الإعاقة.
+    for item in accessibility[
+        "wheelchair_no"
+    ]:
 
-أنت الذي تحدد من الصورة:
-1. ما هي المشكلة أو العائق؟
-2. من الأشخاص الذين قد يتأثرون؟
-3. ما الذي يحتاجه المكان؟
-4. كيف يمكن تحسينه؟
-5. كيف يمكن استخدام الذكاء الاصطناعي؟
+        for lat, lon in route_points:
 
-لا تخترع أشياء غير موجودة في الصورة.
+            d = distance_meters(
+                lat,
+                lon,
+                item["lat"],
+                item["lon"]
+            )
 
-إذا كان شيء غير واضح في الصورة،
-اذكر أنه غير واضح.
+            if d <= 60:
 
-أجب باللغة العربية.
+                nearby_bad_points += 1
+                break
 
-استخدم هذا الشكل:
+    # ---------------------------------------------
+    # Score
+    # ---------------------------------------------
 
-SCORE:
-رقم من 0 إلى 100 يوضح مستوى الإتاحة الظاهر في الصورة.
+    score -= nearby_stairs * 18
+    score += nearby_good_points * 5
+    score -= nearby_bad_points * 20
 
-WHAT_IS_THE_PROBLEM:
-ما المشكلة أو العائق الذي تراه؟
+    score = max(
+        0,
+        min(100, score)
+    )
 
-WHO_MAY_NEED_HELP:
-من الأشخاص الذين قد يحتاجون مساعدة بسبب هذا العائق؟
+    return {
+        "score": score,
+        "stairs": nearby_stairs,
+        "good": nearby_good_points,
+        "bad": nearby_bad_points
+    }
 
-WHAT_IS_NEEDED:
-ما الشيء الذي يحتاجه المكان ليصبح أكثر إتاحة؟
 
-SOLUTIONS:
-حلول عملية وواضحة لتحسين المكان.
+# =========================================================
+# SEARCH
+# =========================================================
 
-AI_SOLUTION:
-فكرة تستخدم الذكاء الاصطناعي لجعل التجربة
-أسهل وأكثر استقلالية.
+if search_button:
 
-SUMMARY:
-ملخص قصير جداً للنتيجة.
+    if not start.strip():
 
-ركز فقط على الأشياء التي يمكن رؤيتها
-أو استنتاجها بشكل منطقي من الصورة.
-"""
+        st.error(
+            "اكتب نقطة البداية أولاً."
+        )
 
-                    # OpenAI request
-                    response = client.responses.create(
-                        model=MODEL,
-                        input=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "input_text",
-                                        "text": prompt
-                                    },
-                                    {
-                                        "type": "input_image",
-                                        "image_url": (
-                                            "data:image/jpeg;base64,"
-                                            + encoded
-                                        )
-                                    }
-                                ]
-                            }
-                        ]
-                    )
+    elif not destination.strip():
 
-                    result = response.output_text
+        st.error(
+            "اكتب الوجهة أولاً."
+        )
 
-                    # Extract score
-                    score = None
+    else:
 
-                    for line in result.splitlines():
+        st.session_state.ai_answer = None
 
-                        if line.strip().upper().startswith(
-                            "SCORE:"
-                        ):
+        with st.spinner(
+            "♿ جاري البحث عن أفضل مسار للكراسي المتحركة..."
+        ):
 
-                            try:
+            start_data = geocode(
+                start
+            )
 
-                                score = int(
-                                    line.split(
-                                        ":",
-                                        1
-                                    )[1].strip()
-                                )
+            destination_data = geocode(
+                destination
+            )
 
-                            except Exception:
+            if not start_data:
 
-                                score = None
+                st.error(
+                    "لم أستطع العثور على نقطة البداية. جرّب اسمًا أكثر تحديدًا."
+                )
 
-                            break
+            elif not destination_data:
 
-                    # Save result
-                    st.session_state.result = result
-                    st.session_state.score = score
+                st.error(
+                    "لم أستطع العثور على الوجهة. جرّب اسمًا أكثر تحديدًا."
+                )
 
-                except Exception as e:
+            else:
+
+                routes = get_route(
+                    start_data["lat"],
+                    start_data["lon"],
+                    destination_data["lat"],
+                    destination_data["lon"]
+                )
+
+                if not routes:
 
                     st.error(
-                        "حدث خطأ أثناء التحليل:\n\n"
-                        + str(e)
+                        "لم يتم العثور على مسار للمشي بين الموقعين."
                     )
 
+                else:
+
+                    accessibility = (
+                        get_accessibility_data(
+                            destination_data["lat"],
+                            destination_data["lon"]
+                        )
+                    )
+
+                    classified = classify_accessibility(
+                        accessibility
+                    )
+
+                    # ---------------------------------
+                    # Evaluate available alternatives
+                    # ---------------------------------
+
+                    evaluated = []
+
+                    for route in routes:
+
+                        evaluation = score_route(
+                            route,
+                            classified
+                        )
+
+                        evaluated.append(
+                            (
+                                evaluation["score"],
+                                route,
+                                evaluation
+                            )
+                        )
+
+                    # Highest accessibility score
+                    evaluated.sort(
+                        key=lambda x: (
+                            x[0],
+                            -x[1]["distance"]
+                        ),
+                        reverse=True
+                    )
+
+                    best_score, best_route, best_evaluation = (
+                        evaluated[0]
+                    )
+
+                    st.session_state.route_result = {
+                        "start": start_data,
+                        "destination": destination_data,
+                        "route": best_route,
+                        "evaluation": best_evaluation,
+                        "accessibility": classified,
+                        "routes_checked": len(routes),
+                    }
+
+
 # =========================================================
-# Results
+# DISPLAY RESULT
 # =========================================================
 
-if st.session_state.result:
+if st.session_state.route_result:
+
+    result = st.session_state.route_result
+
+    start_data = result["start"]
+    destination_data = result["destination"]
+
+    route = result["route"]
+    evaluation = result["evaluation"]
+    accessibility = result["accessibility"]
+
+    distance_km = (
+        route["distance"] / 1000
+    )
+
+    minutes = (
+        route["duration"] / 60
+    )
+
+    score = evaluation["score"]
+
+    # =====================================================
+    # MAP
+    # =====================================================
 
     st.markdown(
         """
-        <div class="chat-title">
-            📊 نتيجة التحليل
+        <div class="section-title">
+            🗺️ مسارك المهيأ
+        </div>
+
+        <div class="section-subtitle">
+            تم تقييم المسارات المتاحة مع إعطاء الأولوية
+            لمؤشرات الإتاحة الخاصة بالكراسي المتحركة.
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    score = st.session_state.score
+    center_lat = (
+        start_data["lat"]
+        +
+        destination_data["lat"]
+    ) / 2
 
-    if score is not None:
+    center_lon = (
+        start_data["lon"]
+        +
+        destination_data["lon"]
+    ) / 2
 
-        col1, col2 = st.columns(
-            [1, 2.8]
+    map_object = folium.Map(
+        location=[
+            center_lat,
+            center_lon
+        ],
+        zoom_start=14,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+
+    # -----------------------------------------------------
+    # START
+    # -----------------------------------------------------
+
+    folium.Marker(
+        [
+            start_data["lat"],
+            start_data["lon"]
+        ],
+        tooltip="📍 البداية",
+        popup=folium.Popup(
+            start_data["name"],
+            max_width=350
+        ),
+        icon=folium.Icon(
+            color="blue",
+            icon="play"
+        )
+    ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # DESTINATION
+    # -----------------------------------------------------
+
+    folium.Marker(
+        [
+            destination_data["lat"],
+            destination_data["lon"]
+        ],
+        tooltip="🎯 الوجهة",
+        popup=folium.Popup(
+            destination_data["name"],
+            max_width=350
+        ),
+        icon=folium.Icon(
+            color="red",
+            icon="flag"
+        )
+    ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # ROUTE
+    # -----------------------------------------------------
+
+    route_points = []
+
+    for lon, lat in route[
+        "geometry"
+    ]["coordinates"]:
+
+        route_points.append(
+            [lat, lon]
         )
 
-        with col1:
+    folium.PolyLine(
+        route_points,
+        color="#675CF5",
+        weight=9,
+        opacity=0.88,
+        tooltip=(
+            "♿ المسار المفضل للكراسي المتحركة"
+        )
+    ).add_to(map_object)
 
-            st.markdown(
-                f"""
-                <div class="score-box">
+    # =====================================================
+    # ACCESSIBILITY MARKERS
+    # =====================================================
 
-                    <div class="score-label">
-                        مستوى الإتاحة
-                    </div>
+    # -----------------------------------------------------
+    # ELEVATORS
+    # -----------------------------------------------------
 
-                    <div class="score-number">
-                        {score}
-                    </div>
+    for item in accessibility[
+        "elevators"
+    ]:
 
-                    <div class="score-label">
-                        من 100
-                    </div>
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🛗 مصعد",
+            popup=(
+                "🛗 مصعد مسجل في بيانات الخريطة"
+            ),
+            icon=folium.Icon(
+                color="green",
+                icon="arrow-up"
+            )
+        ).add_to(map_object)
 
+    # -----------------------------------------------------
+    # RAMPS
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "ramps"
+    ]:
+
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🛝 منحدر",
+            popup=(
+                "🛝 منحدر مسجل في بيانات الخريطة"
+            ),
+            icon=folium.Icon(
+                color="green",
+                icon="road"
+            )
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # WHEELCHAIR YES
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "wheelchair_yes"
+    ]:
+
+        folium.CircleMarker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            radius=7,
+            tooltip="♿ وصول مهيأ",
+            popup=(
+                "♿ موقع مسجل كـ wheelchair=yes"
+            ),
+            color="#20B878",
+            fill=True,
+            fill_opacity=0.9
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # STAIRS
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "stairs"
+    ]:
+
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🚫 درج",
+            popup=(
+                "🚫 درج مسجل في بيانات الخريطة"
+            ),
+            icon=folium.Icon(
+                color="red",
+                icon="warning-sign"
+            )
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # WHEELCHAIR NO
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "wheelchair_no"
+    ]:
+
+        folium.CircleMarker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            radius=7,
+            tooltip="⚠️ غير مهيأ",
+            popup=(
+                "⚠️ الموقع مسجل كـ wheelchair=no"
+            ),
+            color="#E26D5A",
+            fill=True,
+            fill_opacity=0.85
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # ACCESSIBLE TOILETS
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "toilets"
+    ]:
+
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🚻 دورة مياه مهيأة",
+            popup=(
+                "🚻 دورة مياه مهيأة مسجلة"
+            ),
+            icon=folium.Icon(
+                color="purple",
+                icon="user"
+            )
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # ACCESSIBLE PARKING
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "parking"
+    ]:
+
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🅿️ موقف مهيأ",
+            popup=(
+                "🅿️ موقف مهيأ مسجل"
+            ),
+            icon=folium.Icon(
+                color="blue",
+                icon="road"
+            )
+        ).add_to(map_object)
+
+    # -----------------------------------------------------
+    # ACCESSIBLE ENTRANCES
+    # -----------------------------------------------------
+
+    for item in accessibility[
+        "entrances"
+    ]:
+
+        folium.Marker(
+            [
+                item["lat"],
+                item["lon"]
+            ],
+            tooltip="🚪 مدخل مهيأ",
+            popup=(
+                "🚪 مدخل مسجل كمدخل مهيأ"
+            ),
+            icon=folium.Icon(
+                color="green",
+                icon="log-in"
+            )
+        ).add_to(map_object)
+
+    st_folium(
+        map_object,
+        width=None,
+        height=650,
+        returned_objects=[]
+    )
+
+    # =====================================================
+    # LEGEND
+    # =====================================================
+
+    st.markdown(
+        """
+        <div class="legend">
+
+            <div class="legend-item">
+                🟣 المسار المفضل
+            </div>
+
+            <div class="legend-item">
+                🛗 مصعد
+            </div>
+
+            <div class="legend-item">
+                🛝 منحدر
+            </div>
+
+            <div class="legend-item">
+                ♿ وصول مهيأ
+            </div>
+
+            <div class="legend-item">
+                🚫 درج
+            </div>
+
+            <div class="legend-item">
+                ⚠️ غير مهيأ
+            </div>
+
+            <div class="legend-item">
+                🚻 دورة مياه
+            </div>
+
+            <div class="legend-item">
+                🅿️ موقف مهيأ
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # =====================================================
+    # STATS
+    # =====================================================
+
+    elevator_count = len(
+        accessibility["elevators"]
+    )
+
+    ramp_count = len(
+        accessibility["ramps"]
+    )
+
+    wheelchair_count = len(
+        accessibility["wheelchair_yes"]
+    )
+
+    stairs_count = len(
+        accessibility["stairs"]
+    )
+
+    st.markdown(
+        f"""
+        <div class="stats">
+
+            <div class="stat">
+
+                <div class="stat-icon">
+                    ♿
                 </div>
-                """,
-                unsafe_allow_html=True
-            )
 
-        with col2:
+                <div class="stat-number">
+                    {score:.0f}%
+                </div>
 
-            st.markdown(
-                """
-                <div class="result-card">
-                """,
-                unsafe_allow_html=True
-            )
+                <div class="stat-label">
+                    مؤشر الإتاحة
+                </div>
 
-            st.markdown(
-                st.session_state.result
-            )
+            </div>
 
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True
-            )
+
+            <div class="stat">
+
+                <div class="stat-icon">
+                    🛣️
+                </div>
+
+                <div class="stat-number">
+                    {distance_km:.1f} كم
+                </div>
+
+                <div class="stat-label">
+                    المسافة
+                </div>
+
+            </div>
+
+
+            <div class="stat">
+
+                <div class="stat-icon">
+                    ⏱️
+                </div>
+
+                <div class="stat-number">
+                    {round(minutes)} دقيقة
+                </div>
+
+                <div class="stat-label">
+                    الوقت التقريبي
+                </div>
+
+            </div>
+
+
+            <div class="stat">
+
+                <div class="stat-icon">
+                    🛗
+                </div>
+
+                <div class="stat-number">
+                    {elevator_count}
+                </div>
+
+                <div class="stat-label">
+                    مصاعد مسجلة
+                </div>
+
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # =====================================================
+    # ROUTE STATUS
+    # =====================================================
+
+    if stairs_count == 0 and score >= 80:
+
+        st.markdown(
+            """
+            <div class="success-box">
+                <strong>♿ المسار يبدو مناسبًا بدرجة جيدة.</strong><br>
+                لم يتم العثور على درجات قريبة من المسار
+                ضمن بيانات الخريطة المتاحة، مع وجود
+                مؤشرات وصول مهيأة.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    elif stairs_count > 0:
+
+        st.markdown(
+            f"""
+            <div class="warning-box">
+                <strong>⚠️ انتبه قبل استخدام المسار.</strong><br>
+                توجد {stairs_count} نقطة درج قريبة من
+                المسار وفق بيانات OpenStreetMap.
+                يجب التحقق ميدانيًا من إمكانية تجاوزها.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     else:
 
         st.markdown(
             """
-            <div class="result-card">
+            <div class="warning-box">
+                <strong>ℹ️ البيانات غير مكتملة.</strong><br>
+                لم نجد معلومات كافية للتأكد من أن
+                جميع أجزاء الرحلة مهيأة للكراسي المتحركة.
+                المسار المقترح ليس ضمانًا ميدانيًا.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # =====================================================
+    # AI
+    # =====================================================
+
+    st.markdown(
+        """
+        <div class="ai-panel">
+
+            <div class="ai-title">
+                ✨ VerifyAI Route Intelligence
+            </div>
+
+            <div class="ai-subtitle">
+                تحليل ذكي للمسار بناءً على بيانات الإتاحة
+                الموجودة، بدون اختراع معلومات غير مؤكدة.
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    ai_button = st.button(
+        "🤖 حلّل المسار باستخدام VerifyAI",
+        use_container_width=True
+    )
+
+    if ai_button:
+
+        api_key = os.getenv(
+            "OPENAI_API_KEY"
+        )
+
+        if not api_key:
+
+            try:
+                api_key = st.secrets[
+                    "OPENAI_API_KEY"
+                ]
+            except Exception:
+                api_key = None
+
+        if not api_key:
+
+            st.warning(
+                "أضف OPENAI_API_KEY لتفعيل التحليل الذكي."
+            )
+
+        else:
+
+            try:
+
+                from openai import OpenAI
+
+                ai_client = OpenAI(
+                    api_key=api_key
+                )
+
+                prompt = f"""
+أنت VerifyAI Access، نظام ذكاء اصطناعي
+متخصص في مسارات الوصول للكراسي المتحركة.
+
+حلل الرحلة التالية:
+
+البداية:
+{start_data["name"]}
+
+الوجهة:
+{destination_data["name"]}
+
+المسافة:
+{distance_km:.2f} كم
+
+الوقت:
+{minutes:.0f} دقيقة
+
+مؤشر الإتاحة:
+{score:.0f}/100
+
+عدد المسارات التي تمت مقارنتها:
+{result["routes_checked"]}
+
+درج قريب من المسار:
+{stairs_count}
+
+مصاعد مسجلة:
+{elevator_count}
+
+منحدرات مسجلة:
+{ramp_count}
+
+نقاط wheelchair=yes:
+{wheelchair_count}
+
+نقاط wheelchair=no:
+{len(accessibility["wheelchair_no"])}
+
+اكتب باللغة العربية.
+
+أعطني:
+
+1. تقييمًا مختصرًا للمسار.
+2. لماذا تم اختيار هذا المسار.
+3. أهم الأشياء التي يجب الانتباه لها.
+4. أماكن الإتاحة التي تم العثور عليها.
+5. ما الذي لا يمكن للنظام التأكد منه.
+
+قواعد مهمة:
+- لا تقل إن الطريق مهيأ 100%.
+- لا تخترع وجود مصعد أو منحدر.
+- لا تعتبر عدم وجود بيانات دليلًا على عدم وجود المرفق.
+- وضح أن بيانات الخريطة قد تكون غير مكتملة.
+- اجعل الإجابة واضحة وقصيرة.
+"""
+
+                response = ai_client.responses.create(
+                    model=MODEL,
+                    input=prompt
+                )
+
+                st.session_state.ai_answer = (
+                    response.output_text
+                )
+
+            except Exception as error:
+
+                st.error(
+                    "تعذر تشغيل تحليل AI."
+                )
+
+                st.caption(
+                    str(error)
+                )
+
+    if st.session_state.ai_answer:
+
+        st.markdown(
+            """
+            <div class="ai-panel">
             """,
             unsafe_allow_html=True
         )
 
         st.markdown(
-            st.session_state.result
+            st.session_state.ai_answer
         )
 
         st.markdown(
@@ -699,116 +1903,16 @@ if st.session_state.result:
             unsafe_allow_html=True
         )
 
+
 # =========================================================
-# AI Chat
+# FOOTER
 # =========================================================
 
 st.markdown(
     """
-    <div class="chat-title">
-        💬 اسأل VerifyAI Access
+    <div class="footer">
+        VerifyAI Access · Wheelchair-first AI navigation
     </div>
     """,
     unsafe_allow_html=True
 )
-
-st.markdown(
-    """
-    <div class="section-subtitle">
-        اسأل الذكاء الاصطناعي عن أي تجربة أو مكان
-        وكيف يمكن جعله أكثر إتاحة.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-# Show previous messages
-
-for message in st.session_state.messages:
-
-    with st.chat_message(
-        message["role"]
-    ):
-
-        st.markdown(
-            message["content"]
-        )
-
-# Chat input
-
-question = st.chat_input(
-    "مثلاً: كيف نجعل المدرسة أسهل للجميع؟"
-)
-
-if question:
-
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": question
-        }
-    )
-
-    with st.chat_message("user"):
-
-        st.markdown(
-            question
-        )
-
-    if not client:
-
-        answer = (
-            "الذكاء الاصطناعي غير متصل. "
-            "تأكد من إضافة OPENAI_API_KEY."
-        )
-
-    else:
-
-        try:
-
-            response = client.responses.create(
-                model=MODEL,
-                instructions="""
-أنت VerifyAI Access.
-
-أنت متخصص في التصميم الشامل
-وإمكانية الوصول.
-
-ساعد المستخدم على اكتشاف:
-
-- المشكلة
-- من قد يحتاج مساعدة
-- ما الذي يحتاجه المكان
-- الحلول الممكنة
-- أفكار تستخدم الذكاء الاصطناعي
-
-لا تفترض معلومات غير معروفة.
-
-اجعل الإجابات واضحة وعملية ومختصرة.
-
-أجب باللغة العربية.
-""",
-                input=question
-            )
-
-            answer = response.output_text
-
-        except Exception as e:
-
-            answer = (
-                "حدث خطأ:\n\n"
-                + str(e)
-            )
-
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": answer
-        }
-    )
-
-    with st.chat_message("assistant"):
-
-        st.markdown(
-            answer
-        )
