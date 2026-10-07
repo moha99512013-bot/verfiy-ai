@@ -20,12 +20,12 @@ st.set_page_config(
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
-NOMINATIM_URL = "https://nominatim.openstreetmap.org"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org"
 OSRM_URL = "https://router.project-osrm.org/route/v1/foot"
 
 HEADERS = {
-    "User-Agent": "VerifyAI-Access/5.0"
+    "User-Agent": "VerifyAI-Access/6.0"
 }
 
 
@@ -36,6 +36,7 @@ HEADERS = {
 st.markdown(
     """
 <style>
+
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
 
 html, body, [class*="css"] {
@@ -44,8 +45,16 @@ html, body, [class*="css"] {
 
 .stApp {
     background:
-        radial-gradient(circle at 10% 5%, rgba(118,87,255,.10), transparent 25%),
-        radial-gradient(circle at 90% 10%, rgba(0,190,180,.08), transparent 25%),
+        radial-gradient(
+            circle at 10% 5%,
+            rgba(118,87,255,.10),
+            transparent 25%
+        ),
+        radial-gradient(
+            circle at 90% 10%,
+            rgba(0,190,180,.08),
+            transparent 25%
+        ),
         #f7f8fc;
 }
 
@@ -83,6 +92,7 @@ div[data-testid="stMetric"] {
     font-size: 11px;
     padding: 30px 0 10px;
 }
+
 </style>
 """,
     unsafe_allow_html=True
@@ -94,30 +104,35 @@ div[data-testid="stMetric"] {
 # =========================================================
 
 defaults = {
+    "selection_mode": None,
     "start_point": None,
     "destination_point": None,
-    "selection_mode": None,
+
     "selected_building": None,
     "selected_floor": "كل الطوابق",
     "indoor_mode": False,
     "indoor_destination": None,
+
     "route_result": None,
     "ai_answer": None,
+
     "map_key": 0,
 }
 
 for key, value in defaults.items():
+
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # =========================================================
-# GEOCODING
+# HELPERS
 # =========================================================
 
 def reverse_geocode(lat, lon):
 
     try:
+
         response = requests.get(
             f"{NOMINATIM_URL}/reverse",
             params={
@@ -139,14 +154,16 @@ def reverse_geocode(lat, lon):
         )
 
     except Exception:
+
         return "الموقع المحدد"
 
 
-# =========================================================
-# DISTANCE
-# =========================================================
-
-def distance_meters(lat1, lon1, lat2, lon2):
+def distance_meters(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
 
     earth = 6371000
 
@@ -169,50 +186,64 @@ def distance_meters(lat1, lon1, lat2, lon2):
     )
 
 
+def has_indoor_information(indoor):
+
+    return (
+        len(indoor.get("levels", [])) > 0
+        or len(indoor.get("rooms", [])) > 0
+        or len(indoor.get("entrances", [])) > 0
+        or len(indoor.get("elevators", [])) > 0
+        or len(indoor.get("stairs", [])) > 0
+        or len(indoor.get("toilets", [])) > 0
+        or len(indoor.get("corridors", [])) > 0
+    )
+
+
+def floor_visible(point, selected_floor):
+
+    if selected_floor == "كل الطوابق":
+        return True
+
+    tags = point.get("tags", {})
+
+    point_level = tags.get("level")
+
+    if not point_level:
+        return True
+
+    levels = [
+        str(x).strip()
+        for x in str(point_level).split(";")
+    ]
+
+    return str(selected_floor) in levels
+
+
+def draw_polygon(
+    map_object,
+    geometry,
+    **kwargs
+):
+
+    points = [
+        [
+            point["lat"],
+            point["lon"]
+        ]
+        for point in geometry
+        if "lat" in point and "lon" in point
+    ]
+
+    if len(points) >= 3:
+
+        folium.Polygon(
+            points,
+            **kwargs
+        ).add_to(map_object)
+
+
 # =========================================================
-# POINT IN POLYGON
-# =========================================================
-
-def point_in_polygon(lat, lon, polygon):
-
-    if len(polygon) < 3:
-        return False
-
-    inside = False
-
-    j = len(polygon) - 1
-
-    for i in range(len(polygon)):
-
-        xi = polygon[i][1]
-        yi = polygon[i][0]
-
-        xj = polygon[j][1]
-        yj = polygon[j][0]
-
-        intersects = (
-            ((yi > lat) != (yj > lat))
-            and (
-                lon
-                < (
-                    (xj - xi)
-                    * (lat - yi)
-                    / ((yj - yi) or 1e-12)
-                    + xi
-                )
-            )
-        )
-
-        if intersects:
-            inside = not inside
-
-        j = i
-
-    return inside
-
-
-# =========================================================
-# OPENABLE BUILDINGS
+# BUILDINGS WITH INDOOR DATA
 # =========================================================
 
 def get_openable_buildings(
@@ -222,7 +253,7 @@ def get_openable_buildings(
 ):
 
     query = f"""
-    [out:json][timeout:55];
+    [out:json][timeout:60];
 
     (
         way["building"](around:{radius},{lat},{lon});
@@ -249,11 +280,12 @@ def get_openable_buildings(
     """
 
     try:
+
         response = requests.post(
             OVERPASS_URL,
             data=query,
             headers=HEADERS,
-            timeout=65
+            timeout=70
         )
 
         elements = response.json().get(
@@ -262,13 +294,17 @@ def get_openable_buildings(
         )
 
     except Exception:
+
         return []
 
+
     buildings = []
+
     indoor_points = []
 
+
     # -----------------------------------------------------
-    # COLLECT BUILDINGS
+    # BUILDINGS
     # -----------------------------------------------------
 
     for item in elements:
@@ -281,6 +317,7 @@ def get_openable_buildings(
         if "building" not in tags:
             continue
 
+
         geometry = item.get(
             "geometry",
             []
@@ -289,6 +326,7 @@ def get_openable_buildings(
         center = item.get(
             "center"
         )
+
 
         if center:
 
@@ -316,6 +354,7 @@ def get_openable_buildings(
 
             continue
 
+
         buildings.append(
             {
                 "id": item.get("id"),
@@ -327,8 +366,9 @@ def get_openable_buildings(
             }
         )
 
+
     # -----------------------------------------------------
-    # COLLECT INDOOR ELEMENTS
+    # INDOOR ELEMENTS
     # -----------------------------------------------------
 
     for item in elements:
@@ -338,17 +378,20 @@ def get_openable_buildings(
             {}
         )
 
-        has_indoor_tag = (
-            tags.get("indoor")
-            or tags.get("room")
-            or tags.get("level")
-            or tags.get("entrance")
+
+        is_indoor = (
+            bool(tags.get("indoor"))
+            or bool(tags.get("room"))
+            or bool(tags.get("level"))
+            or bool(tags.get("entrance"))
             or tags.get("elevator") == "yes"
             or tags.get("highway") == "elevator"
         )
 
-        if not has_indoor_tag:
+
+        if not is_indoor:
             continue
+
 
         if "lat" in item:
 
@@ -388,6 +431,7 @@ def get_openable_buildings(
 
             continue
 
+
         indoor_points.append(
             {
                 "lat": point_lat,
@@ -396,55 +440,33 @@ def get_openable_buildings(
             }
         )
 
+
     # -----------------------------------------------------
-    # MATCH INDOOR DATA TO BUILDINGS
+    # MATCH INDOOR ELEMENTS TO BUILDINGS
     # -----------------------------------------------------
 
     openable = []
 
+
     for building in buildings:
-
-        building_geometry = building.get(
-            "geometry",
-            []
-        )
-
-        polygon = [
-            [
-                p["lat"],
-                p["lon"]
-            ]
-            for p in building_geometry
-        ]
 
         has_indoor = False
 
         for point in indoor_points:
 
-            # First choice: exact polygon containment
-            if len(polygon) >= 3:
-
-                if point_in_polygon(
-                    point["lat"],
-                    point["lon"],
-                    polygon
-                ):
-
-                    has_indoor = True
-                    break
-
-            # Fallback for buildings without polygon geometry
-            nearby = distance_meters(
+            distance = distance_meters(
                 building["lat"],
                 building["lon"],
                 point["lat"],
                 point["lon"]
             )
 
-            if nearby <= 60:
+
+            if distance <= 100:
 
                 has_indoor = True
                 break
+
 
         if has_indoor:
 
@@ -452,12 +474,25 @@ def get_openable_buildings(
                 building
             )
 
-    # Limit visible markers to prevent overload
-    return openable[:100]
+
+    # Remove duplicates by ID
+    unique = {}
+
+    for building in openable:
+
+        key = (
+            building["type"],
+            building["id"]
+        )
+
+        unique[key] = building
+
+
+    return list(unique.values())[:120]
 
 
 # =========================================================
-# FIND SELECTED BUILDING
+# FIND BUILDING NEAR CLICK
 # =========================================================
 
 def get_building_at_point(
@@ -467,7 +502,7 @@ def get_building_at_point(
 ):
 
     query = f"""
-    [out:json][timeout:30];
+    [out:json][timeout:35];
 
     (
         way["building"](around:{radius},{lat},{lon});
@@ -477,13 +512,14 @@ def get_building_at_point(
     out center geom;
     """
 
+
     try:
 
         response = requests.post(
             OVERPASS_URL,
             data=query,
             headers=HEADERS,
-            timeout=40
+            timeout=45
         )
 
         elements = response.json().get(
@@ -495,8 +531,10 @@ def get_building_at_point(
 
         return None
 
+
     best = None
     best_distance = float("inf")
+
 
     for item in elements:
 
@@ -513,6 +551,7 @@ def get_building_at_point(
         center = item.get(
             "center"
         )
+
 
         if center:
 
@@ -540,16 +579,18 @@ def get_building_at_point(
 
             continue
 
-        distance = distance_meters(
+
+        d = distance_meters(
             lat,
             lon,
             center_lat,
             center_lon
         )
 
-        if distance < best_distance:
 
-            best_distance = distance
+        if d < best_distance:
+
+            best_distance = d
 
             best = {
                 "id": item.get("id"),
@@ -562,6 +603,7 @@ def get_building_at_point(
                 "geometry": geometry
             }
 
+
     return best
 
 
@@ -572,11 +614,11 @@ def get_building_at_point(
 def get_indoor_data(
     lat,
     lon,
-    radius=300
+    radius=350
 ):
 
     query = f"""
-    [out:json][timeout:45];
+    [out:json][timeout:50];
 
     (
         node["entrance"](around:{radius},{lat},{lon});
@@ -608,13 +650,14 @@ def get_indoor_data(
     out center geom;
     """
 
+
     try:
 
         response = requests.post(
             OVERPASS_URL,
             data=query,
             headers=HEADERS,
-            timeout=60
+            timeout=65
         )
 
         return response.json().get(
@@ -640,12 +683,14 @@ def parse_indoor_data(elements):
         "levels": set()
     }
 
+
     for element in elements:
 
         tags = element.get(
             "tags",
             {}
         )
+
 
         if "lat" in element:
 
@@ -671,6 +716,7 @@ def parse_indoor_data(elements):
 
             continue
 
+
         point = {
             "lat": lat,
             "lon": lon,
@@ -680,6 +726,9 @@ def parse_indoor_data(elements):
                 []
             )
         }
+
+
+        # Floors
 
         if tags.get("level"):
 
@@ -691,11 +740,17 @@ def parse_indoor_data(elements):
                     level.strip()
                 )
 
+
+        # Entrance
+
         if "entrance" in tags:
 
             result["entrances"].append(
                 point
             )
+
+
+        # Elevator
 
         if (
             tags.get("highway") == "elevator"
@@ -707,6 +762,9 @@ def parse_indoor_data(elements):
                 point
             )
 
+
+        # Stairs
+
         if (
             tags.get("highway") == "steps"
             or tags.get("indoor") == "stairs"
@@ -715,6 +773,9 @@ def parse_indoor_data(elements):
             result["stairs"].append(
                 point
             )
+
+
+        # Rooms
 
         if (
             tags.get("room")
@@ -725,6 +786,9 @@ def parse_indoor_data(elements):
                 point
             )
 
+
+        # Toilets
+
         if tags.get(
             "amenity"
         ) == "toilets":
@@ -732,6 +796,9 @@ def parse_indoor_data(elements):
             result["toilets"].append(
                 point
             )
+
+
+        # Corridors
 
         if (
             tags.get("indoor") == "corridor"
@@ -741,6 +808,9 @@ def parse_indoor_data(elements):
             result["corridors"].append(
                 point
             )
+
+
+        # Other indoor objects
 
         if tags.get("indoor"):
 
@@ -755,17 +825,21 @@ def parse_indoor_data(elements):
                     point
                 )
 
-    def floor_sort(value):
+
+    def sort_floor(value):
 
         try:
             return float(value)
+
         except Exception:
             return 999
 
+
     result["levels"] = sorted(
         list(result["levels"]),
-        key=floor_sort
+        key=sort_floor
     )
+
 
     return result
 
@@ -781,7 +855,7 @@ def get_accessibility_data(
 ):
 
     query = f"""
-    [out:json][timeout:35];
+    [out:json][timeout:40];
 
     (
         node["highway"="steps"](around:{radius},{lat},{lon});
@@ -806,6 +880,7 @@ def get_accessibility_data(
     out center;
     """
 
+
     try:
 
         response = requests.post(
@@ -824,6 +899,7 @@ def get_accessibility_data(
 
         elements = []
 
+
     result = {
         "stairs": [],
         "elevators": [],
@@ -835,12 +911,14 @@ def get_accessibility_data(
         "entrances": []
     }
 
+
     for element in elements:
 
         tags = element.get(
             "tags",
             {}
         )
+
 
         if "lat" in element:
 
@@ -866,30 +944,41 @@ def get_accessibility_data(
 
             continue
 
+
         point = {
             "lat": lat2,
             "lon": lon2,
             "tags": tags
         }
 
+
         if tags.get(
             "highway"
         ) == "steps":
 
-            result["stairs"].append(point)
+            result["stairs"].append(
+                point
+            )
+
 
         if (
             tags.get("highway") == "elevator"
             or tags.get("elevator") == "yes"
         ):
 
-            result["elevators"].append(point)
+            result["elevators"].append(
+                point
+            )
+
 
         if tags.get(
             "ramp"
         ) == "yes":
 
-            result["ramps"].append(point)
+            result["ramps"].append(
+                point
+            )
+
 
         if tags.get(
             "wheelchair"
@@ -899,6 +988,7 @@ def get_accessibility_data(
                 point
             )
 
+
         if tags.get(
             "wheelchair"
         ) == "no":
@@ -906,6 +996,7 @@ def get_accessibility_data(
             result["wheelchair_no"].append(
                 point
             )
+
 
         if (
             tags.get("amenity") == "toilets"
@@ -916,6 +1007,7 @@ def get_accessibility_data(
                 point
             )
 
+
         if (
             tags.get("amenity") == "parking"
             and tags.get("wheelchair") == "yes"
@@ -925,6 +1017,7 @@ def get_accessibility_data(
                 point
             )
 
+
         if (
             tags.get("entrance")
             and tags.get("wheelchair") == "yes"
@@ -933,6 +1026,7 @@ def get_accessibility_data(
             result["entrances"].append(
                 point
             )
+
 
     return result
 
@@ -952,12 +1046,14 @@ def get_routes(
         f"{destination['lon']},{destination['lat']}"
     )
 
+
     params = {
         "alternatives": "true",
         "overview": "full",
         "geometries": "geojson",
         "steps": "true"
     }
+
 
     try:
 
@@ -993,6 +1089,7 @@ def score_route(
         len(coordinates) // 80
     )
 
+
     for lon, lat in coordinates[::step]:
 
         for stair in accessibility[
@@ -1008,6 +1105,7 @@ def score_route(
 
                 score -= 15
 
+
         for bad in accessibility[
             "wheelchair_no"
         ]:
@@ -1021,6 +1119,7 @@ def score_route(
 
                 score -= 20
 
+
     return max(
         0,
         min(
@@ -1031,35 +1130,76 @@ def score_route(
 
 
 # =========================================================
-# POLYGON
+# LOAD BUILDING FROM MARKER
 # =========================================================
 
-def draw_polygon(
-    map_object,
-    geometry,
-    **kwargs
+def open_building_from_click(
+    click_lat,
+    click_lon,
+    openable_buildings
 ):
 
-    points = [
-        [
-            point["lat"],
-            point["lon"]
-        ]
+    closest = None
+    closest_distance = float("inf")
 
-        for point in geometry
 
-        if "lat" in point
-        and "lon" in point
-    ]
+    for building in openable_buildings:
 
-    if len(points) >= 3:
-
-        folium.Polygon(
-            points,
-            **kwargs
-        ).add_to(
-            map_object
+        d = distance_meters(
+            click_lat,
+            click_lon,
+            building["lat"],
+            building["lon"]
         )
+
+
+        if d < closest_distance:
+
+            closest_distance = d
+            closest = building
+
+
+    # Marker clicks should be very close
+    if closest is None or closest_distance > 120:
+
+        return None
+
+
+    building = get_building_at_point(
+        click_lat,
+        click_lon,
+        radius=180
+    )
+
+
+    if building is None:
+
+        building = closest
+
+
+    indoor_elements = get_indoor_data(
+        building["center"]["lat"],
+        building["center"]["lon"],
+        radius=400
+    )
+
+
+    indoor = parse_indoor_data(
+        indoor_elements
+    )
+
+
+    building["indoor"] = indoor
+
+
+    if not has_indoor_information(
+        indoor
+    ):
+
+        return None
+
+
+    return building
 
 
 # =========================================================
@@ -1071,15 +1211,16 @@ st.title(
 )
 
 st.caption(
-    "خريطة وصول ذكية — اختر الأماكن والمباني بالضغط على الخريطة."
+    "خريطة وصول ذكية — اكتشف الطرق والمباني الداخلية بسهولة."
 )
 
 
 # =========================================================
-# ACTION BUTTONS
+# CONTROLS
 # =========================================================
 
 c1, c2, c3, c4 = st.columns(4)
+
 
 with c1:
 
@@ -1104,7 +1245,7 @@ with c2:
 with c3:
 
     if st.button(
-        "🏢 فتح مبنى",
+        "🏢 اختيار مبنى",
         use_container_width=True
     ):
 
@@ -1118,22 +1259,26 @@ with c4:
         use_container_width=True
     ):
 
+        st.session_state.selection_mode = None
+
         st.session_state.start_point = None
         st.session_state.destination_point = None
-        st.session_state.selection_mode = None
+
         st.session_state.selected_building = None
         st.session_state.selected_floor = "كل الطوابق"
         st.session_state.indoor_mode = False
         st.session_state.indoor_destination = None
+
         st.session_state.route_result = None
         st.session_state.ai_answer = None
+
         st.session_state.map_key += 1
 
         st.rerun()
 
 
 # =========================================================
-# CURRENT MODE
+# MODE MESSAGE
 # =========================================================
 
 if st.session_state.selection_mode == "start":
@@ -1151,18 +1296,18 @@ elif st.session_state.selection_mode == "destination":
 elif st.session_state.selection_mode == "building":
 
     st.info(
-        "🏢 اضغط داخل مبنى أو على علامة 🏢 لفتحه."
+        "🏢 اضغط على علامة 🏢 أو على مكان المبنى."
     )
 
 else:
 
     st.info(
-        "اختر وضعًا من الأعلى ثم اضغط على الخريطة."
+        "اضغط على «🏢» لفتح مبنى مدعوم، أو اختر البداية والوجهة."
     )
 
 
 # =========================================================
-# OUTDOOR MAP
+# MAP CENTER
 # =========================================================
 
 if st.session_state.start_point:
@@ -1179,6 +1324,13 @@ elif st.session_state.destination_point:
         st.session_state.destination_point["lon"]
     ]
 
+elif st.session_state.selected_building:
+
+    map_center = [
+        st.session_state.selected_building["center"]["lat"],
+        st.session_state.selected_building["center"]["lon"]
+    ]
+
 else:
 
     # Jeddah
@@ -1188,10 +1340,30 @@ else:
     ]
 
 
+# =========================================================
+# GET OPENABLE BUILDINGS
+# =========================================================
+
+with st.spinner(
+    "جاري تجهيز المباني القابلة للفتح..."
+):
+
+    openable_buildings = get_openable_buildings(
+        map_center[0],
+        map_center[1],
+        radius=1800
+    )
+
+
+# =========================================================
+# OUTDOOR MAP
+# =========================================================
+
 outdoor_map = folium.Map(
     location=map_center,
-    zoom_start=13,
-    tiles="OpenStreetMap"
+    zoom_start=14,
+    tiles="OpenStreetMap",
+    control_scale=True
 )
 
 
@@ -1199,43 +1371,40 @@ outdoor_map = folium.Map(
 # OPENABLE BUILDING MARKERS
 # =========================================================
 
-openable_buildings = get_openable_buildings(
-    map_center[0],
-    map_center[1],
-    radius=1800
-)
-
-
 for building in openable_buildings:
 
-    building_tags = building.get(
+    tags = building.get(
         "tags",
         {}
     )
 
+
     building_name = (
-        building_tags.get("name")
-        or building_tags.get("official_name")
-        or "مبنى يدعم الخريطة الداخلية"
+        tags.get("name")
+        or tags.get("official_name")
+        or "مبنى قابل للفتح"
     )
 
-    popup_text = (
+
+    popup = (
         "<b>🏢 مبنى قابل للفتح</b><br>"
-        + html.escape(building_name)
+        + html.escape(
+            building_name
+        )
         + "<br><br>"
-        "توجد بيانات داخلية لهذا المبنى.<br>"
-        "فعّل «فتح مبنى» ثم اضغط عليه."
+        "اضغط على العلامة لفتح المبنى."
     )
+
 
     folium.Marker(
-        [
+        location=[
             building["lat"],
             building["lon"]
         ],
         tooltip="🏢 مبنى قابل للفتح",
         popup=folium.Popup(
-            popup_text,
-            max_width=320
+            popup,
+            max_width=300
         ),
         icon=folium.Icon(
             color="purple",
@@ -1248,7 +1417,7 @@ for building in openable_buildings:
 
 
 # =========================================================
-# SELECTED START
+# START MARKER
 # =========================================================
 
 if st.session_state.start_point:
@@ -1256,7 +1425,7 @@ if st.session_state.start_point:
     point = st.session_state.start_point
 
     folium.Marker(
-        [
+        location=[
             point["lat"],
             point["lon"]
         ],
@@ -1273,7 +1442,7 @@ if st.session_state.start_point:
 
 
 # =========================================================
-# SELECTED DESTINATION
+# DESTINATION MARKER
 # =========================================================
 
 if st.session_state.destination_point:
@@ -1281,7 +1450,7 @@ if st.session_state.destination_point:
     point = st.session_state.destination_point
 
     folium.Marker(
-        [
+        location=[
             point["lat"],
             point["lon"]
         ],
@@ -1298,7 +1467,7 @@ if st.session_state.destination_point:
 
 
 # =========================================================
-# SELECTED BUILDING HIGHLIGHT
+# SELECTED BUILDING
 # =========================================================
 
 if (
@@ -1310,19 +1479,17 @@ if (
 
     draw_polygon(
         outdoor_map,
-        st.session_state.selected_building[
-            "geometry"
-        ],
+        st.session_state.selected_building["geometry"],
         color="#7657ff",
         fill=True,
-        fill_opacity=0.22,
+        fill_opacity=0.25,
         weight=4,
         tooltip="🏢 المبنى المحدد"
     )
 
 
 # =========================================================
-# SHOW MAP
+# MAP
 # =========================================================
 
 map_data = st_folium(
@@ -1331,26 +1498,147 @@ map_data = st_folium(
     height=620,
     returned_objects=[
         "last_clicked",
-        "last_object_clicked"
+        "last_object_clicked",
+        "last_object_clicked_tooltip",
+        "last_object_clicked_popup",
+        "last_object_clicked_count"
     ],
     key=f"outdoor_map_{st.session_state.map_key}"
 )
 
 
 # =========================================================
-# HANDLE MAP CLICK
+# PROCESS MARKER CLICK
 # =========================================================
-
-clicked = None
 
 if map_data:
 
-    clicked = map_data.get(
-        "last_clicked"
+    object_clicked = map_data.get(
+        "last_object_clicked"
     )
 
 
-if clicked and st.session_state.selection_mode:
+    object_tooltip = map_data.get(
+        "last_object_clicked_tooltip"
+    )
+
+
+    # =====================================================
+    # DIRECT CLICK ON BUILDING MARKER
+    # =====================================================
+
+    if object_clicked:
+
+        clicked_lat = float(
+            object_clicked["lat"]
+        )
+
+        clicked_lon = float(
+            object_clicked["lng"]
+        )
+
+
+        # Determine whether this is an openable building
+        building_candidate = None
+        candidate_distance = float("inf")
+
+
+        for building in openable_buildings:
+
+            d = distance_meters(
+                clicked_lat,
+                clicked_lon,
+                building["lat"],
+                building["lon"]
+            )
+
+
+            if d < candidate_distance:
+
+                candidate_distance = d
+                building_candidate = building
+
+
+        is_building_marker = (
+            object_tooltip == "🏢 مبنى قابل للفتح"
+            or (
+                building_candidate is not None
+                and candidate_distance < 100
+            )
+        )
+
+
+        if is_building_marker:
+
+            with st.spinner(
+                "🏢 جاري فتح المبنى..."
+            ):
+
+                building = open_building_from_click(
+                    clicked_lat,
+                    clicked_lon,
+                    openable_buildings
+                )
+
+
+                if building:
+
+                    st.session_state.selected_building = (
+                        building
+                    )
+
+                    st.session_state.indoor_mode = True
+
+                    levels = building[
+                        "indoor"
+                    ].get(
+                        "levels",
+                        []
+                    )
+
+
+                    if levels:
+
+                        st.session_state.selected_floor = (
+                            levels[0]
+                        )
+
+                    else:
+
+                        st.session_state.selected_floor = (
+                            "كل الطوابق"
+                        )
+
+
+                    st.session_state.selection_mode = None
+
+                    st.session_state.map_key += 1
+
+                    st.rerun()
+
+
+                else:
+
+                    st.warning(
+                        "تعذر تحميل البيانات الداخلية لهذا المبنى."
+                    )
+
+
+# =========================================================
+# NORMAL MAP CLICK
+# =========================================================
+
+if (
+    map_data
+    and map_data.get("last_clicked")
+    and not map_data.get("last_object_clicked")
+    and st.session_state.selection_mode
+):
+
+    clicked = map_data[
+        "last_clicked"
+    ]
+
 
     lat = float(
         clicked["lat"]
@@ -1361,7 +1649,9 @@ if clicked and st.session_state.selection_mode:
     )
 
 
+    # -----------------------------------------------------
     # START
+    # -----------------------------------------------------
 
     if st.session_state.selection_mode == "start":
 
@@ -1376,10 +1666,16 @@ if clicked and st.session_state.selection_mode:
 
         st.session_state.selection_mode = None
 
+        st.session_state.route_result = None
+
+        st.session_state.map_key += 1
+
         st.rerun()
 
 
+    # -----------------------------------------------------
     # DESTINATION
+    # -----------------------------------------------------
 
     elif st.session_state.selection_mode == "destination":
 
@@ -1394,15 +1690,21 @@ if clicked and st.session_state.selection_mode:
 
         st.session_state.selection_mode = None
 
+        st.session_state.route_result = None
+
+        st.session_state.map_key += 1
+
         st.rerun()
 
 
-    # BUILDING
+    # -----------------------------------------------------
+    # BUILDING MODE
+    # -----------------------------------------------------
 
     elif st.session_state.selection_mode == "building":
 
         with st.spinner(
-            "جاري فتح المبنى..."
+            "🏢 البحث عن المبنى..."
         ):
 
             building = get_building_at_point(
@@ -1410,61 +1712,68 @@ if clicked and st.session_state.selection_mode:
                 lon
             )
 
+
             if building:
 
                 indoor_elements = get_indoor_data(
                     building["center"]["lat"],
-                    building["center"]["lon"]
+                    building["center"]["lon"],
+                    radius=400
                 )
 
                 building["indoor"] = parse_indoor_data(
                     indoor_elements
                 )
 
-                has_indoor_data = (
-                    len(
-                        building["indoor"]["levels"]
-                    ) > 0
-                    or len(
-                        building["indoor"]["rooms"]
-                    ) > 0
-                    or len(
-                        building["indoor"]["elevators"]
-                    ) > 0
-                    or len(
-                        building["indoor"]["entrances"]
-                    ) > 0
-                )
 
-                if has_indoor_data:
+                if has_indoor_information(
+                    building["indoor"]
+                ):
 
-                    st.session_state.selected_building = building
+                    st.session_state.selected_building = (
+                        building
+                    )
+
                     st.session_state.indoor_mode = True
 
                     levels = building[
                         "indoor"
-                    ]["levels"]
+                    ].get(
+                        "levels",
+                        []
+                    )
+
 
                     if levels:
-                        st.session_state.selected_floor = levels[0]
+
+                        st.session_state.selected_floor = (
+                            levels[0]
+                        )
+
                     else:
-                        st.session_state.selected_floor = "كل الطوابق"
+
+                        st.session_state.selected_floor = (
+                            "كل الطوابق"
+                        )
+
+                    st.session_state.selection_mode = None
+
+                    st.session_state.map_key += 1
+
+                    st.rerun()
 
                 else:
 
                     st.warning(
-                        "هذا المبنى موجود على الخريطة، "
-                        "لكن لا توجد له بيانات داخلية كافية لفتحه حاليًا."
+                        "هذا المبنى موجود، لكن لا توجد له "
+                        "بيانات داخلية كافية."
                     )
 
             else:
 
                 st.warning(
-                    "لم يتم العثور على مبنى في هذه النقطة."
+                    "لم يتم العثور على مبنى في هذا المكان."
                 )
-
-        st.session_state.selection_mode = None
-        st.rerun()
 
 
 # =========================================================
@@ -1475,7 +1784,9 @@ st.subheader(
     "📌 المواقع المحددة"
 )
 
+
 left, right = st.columns(2)
+
 
 with left:
 
@@ -1483,15 +1794,13 @@ with left:
 
         st.success(
             "🟢 البداية\n\n"
-            + st.session_state.start_point[
-                "name"
-            ]
+            + st.session_state.start_point["name"]
         )
 
     else:
 
         st.info(
-            "لم يتم اختيار البداية."
+            "لم يتم اختيار نقطة البداية."
         )
 
 
@@ -1501,9 +1810,7 @@ with right:
 
         st.error(
             "🔴 الوجهة\n\n"
-            + st.session_state.destination_point[
-                "name"
-            ]
+            + st.session_state.destination_point["name"]
         )
 
     else:
@@ -1532,6 +1839,7 @@ if building:
         {}
     )
 
+
     building_name = (
         tags.get("name")
         or tags.get("official_name")
@@ -1539,46 +1847,59 @@ if building:
         or "المبنى"
     )
 
+
     st.divider()
 
     st.header(
         f"🏢 {building_name}"
     )
 
+
     st.success(
-        "هذا المبنى عليه علامة 🏢 في الخريطة لأنه يحتوي على بيانات داخلية."
+        "هذا المبنى قابل للفتح لأن بياناته الداخلية موجودة في الخريطة."
     )
 
-    b1, b2, b3, b4 = st.columns(4)
 
-    with b1:
+    s1, s2, s3, s4 = st.columns(4)
+
+
+    with s1:
+
         st.metric(
             "🚪 المداخل",
             len(indoor["entrances"])
         )
 
-    with b2:
+
+    with s2:
+
         st.metric(
             "🛗 المصاعد",
             len(indoor["elevators"])
         )
 
-    with b3:
+
+    with s3:
+
         st.metric(
-            "📍 الأماكن الداخلية",
+            "📍 الأماكن",
             len(indoor["rooms"])
         )
 
-    with b4:
+
+    with s4:
+
         st.metric(
             "🪜 السلالم",
             len(indoor["stairs"])
         )
 
+
     levels = indoor.get(
         "levels",
         []
     )
+
 
     if levels:
 
@@ -1592,19 +1913,26 @@ if building:
             "كل الطوابق"
         ]
 
+
+    current_floor = st.session_state.selected_floor
+
+
+    if current_floor not in floor_options:
+
+        current_floor = floor_options[0]
+
+
     selected_floor = st.selectbox(
         "🏷️ اختر الطابق",
         floor_options,
-        index=(
-            floor_options.index(
-                st.session_state.selected_floor
-            )
-            if st.session_state.selected_floor in floor_options
-            else 0
+        index=floor_options.index(
+            current_floor
         )
     )
 
+
     st.session_state.selected_floor = selected_floor
+
 
     if st.button(
         "🗺️ فتح الخريطة الداخلية",
@@ -1612,7 +1940,9 @@ if building:
     ):
 
         st.session_state.indoor_mode = True
+
         st.session_state.map_key += 1
+
         st.rerun()
 
 
@@ -1620,10 +1950,17 @@ if building:
 # INDOOR MAP
 # =========================================================
 
-if building and st.session_state.indoor_mode:
+if (
+    building
+    and st.session_state.indoor_mode
+):
 
     indoor = building["indoor"]
-    selected_floor = st.session_state.selected_floor
+
+    selected_floor = (
+        st.session_state.selected_floor
+    )
+
 
     st.divider()
 
@@ -1631,17 +1968,19 @@ if building and st.session_state.indoor_mode:
         "🏢 الخريطة الداخلية"
     )
 
+
     if selected_floor == "كل الطوابق":
 
         st.caption(
-            "عرض جميع البيانات الداخلية المتوفرة."
+            "جميع البيانات الداخلية المتوفرة."
         )
 
     else:
 
         st.caption(
-            f"الطابق المحدد: {selected_floor}"
+            f"الطابق: {selected_floor}"
         )
+
 
     indoor_map = folium.Map(
         location=[
@@ -1649,11 +1988,14 @@ if building and st.session_state.indoor_mode:
             building["center"]["lon"]
         ],
         zoom_start=19,
-        tiles="OpenStreetMap"
+        tiles="OpenStreetMap",
+        control_scale=True
     )
 
-    # BUILDING
-    if building.get("geometry"):
+
+    if building.get(
+        "geometry"
+    ):
 
         draw_polygon(
             indoor_map,
@@ -1665,27 +2007,6 @@ if building and st.session_state.indoor_mode:
             tooltip="🏢 المبنى"
         )
 
-    def floor_visible(point):
-
-        if selected_floor == "كل الطوابق":
-            return True
-
-        point_level = (
-            point.get("tags", {})
-            .get("level")
-        )
-
-        if not point_level:
-            return True
-
-        values = str(
-            point_level
-        ).split(";")
-
-        return str(selected_floor) in [
-            str(v).strip()
-            for v in values
-        ]
 
     # -----------------------------------------------------
     # ENTRANCES
@@ -1693,18 +2014,24 @@ if building and st.session_state.indoor_mode:
 
     for point in indoor["entrances"]:
 
-        if not floor_visible(point):
+        if not floor_visible(
+            point,
+            selected_floor
+        ):
             continue
+
 
         level = point["tags"].get(
             "level",
             "غير محدد"
         )
 
+
         wheelchair = point["tags"].get(
             "wheelchair",
             "غير محدد"
         )
+
 
         folium.Marker(
             [
@@ -1727,19 +2054,25 @@ if building and st.session_state.indoor_mode:
             indoor_map
         )
 
+
     # -----------------------------------------------------
     # ELEVATORS
     # -----------------------------------------------------
 
     for point in indoor["elevators"]:
 
-        if not floor_visible(point):
+        if not floor_visible(
+            point,
+            selected_floor
+        ):
             continue
+
 
         level = point["tags"].get(
             "level",
             "غير محدد"
         )
+
 
         folium.Marker(
             [
@@ -1761,19 +2094,25 @@ if building and st.session_state.indoor_mode:
             indoor_map
         )
 
+
     # -----------------------------------------------------
     # STAIRS
     # -----------------------------------------------------
 
     for point in indoor["stairs"]:
 
-        if not floor_visible(point):
+        if not floor_visible(
+            point,
+            selected_floor
+        ):
             continue
+
 
         level = point["tags"].get(
             "level",
             "غير محدد"
         )
+
 
         folium.Marker(
             [
@@ -1795,14 +2134,19 @@ if building and st.session_state.indoor_mode:
             indoor_map
         )
 
+
     # -----------------------------------------------------
     # ROOMS
     # -----------------------------------------------------
 
     for point in indoor["rooms"]:
 
-        if not floor_visible(point):
+        if not floor_visible(
+            point,
+            selected_floor
+        ):
             continue
+
 
         name = (
             point["tags"].get("name")
@@ -1810,15 +2154,18 @@ if building and st.session_state.indoor_mode:
             or "مكان داخلي"
         )
 
+
         level = point["tags"].get(
             "level",
             "غير محدد"
         )
 
+
         wheelchair = point["tags"].get(
             "wheelchair",
             "غير محدد"
         )
+
 
         folium.CircleMarker(
             [
@@ -1841,24 +2188,31 @@ if building and st.session_state.indoor_mode:
             indoor_map
         )
 
+
     # -----------------------------------------------------
     # TOILETS
     # -----------------------------------------------------
 
     for point in indoor["toilets"]:
 
-        if not floor_visible(point):
+        if not floor_visible(
+            point,
+            selected_floor
+        ):
             continue
+
 
         level = point["tags"].get(
             "level",
             "غير محدد"
         )
 
+
         wheelchair = point["tags"].get(
             "wheelchair",
             "غير محدد"
         )
+
 
         folium.Marker(
             [
@@ -1881,11 +2235,12 @@ if building and st.session_state.indoor_mode:
             indoor_map
         )
 
+
     # -----------------------------------------------------
-    # SHOW INDOOR MAP
+    # INDOOR MAP
     # -----------------------------------------------------
 
-    indoor_click = st_folium(
+    indoor_result = st_folium(
         indoor_map,
         width=None,
         height=650,
@@ -1895,46 +2250,52 @@ if building and st.session_state.indoor_mode:
         key=f"indoor_map_{st.session_state.map_key}"
     )
 
+
     if (
-        indoor_click
-        and indoor_click.get("last_clicked")
+        indoor_result
+        and indoor_result.get("last_clicked")
     ):
 
-        clicked_inside = indoor_click[
+        point = indoor_result[
             "last_clicked"
         ]
 
+
         st.session_state.indoor_destination = {
             "lat": float(
-                clicked_inside["lat"]
+                point["lat"]
             ),
             "lon": float(
-                clicked_inside["lng"]
+                point["lng"]
             ),
             "level": selected_floor
         }
+
 
         st.success(
             "📍 تم اختيار نقطة داخل المبنى."
         )
 
+
     # -----------------------------------------------------
-    # INDOOR SUMMARY
+    # INDOOR DETAILS
     # -----------------------------------------------------
 
     st.subheader(
-        "📋 تفاصيل المبنى"
+        "📋 معلومات المبنى"
     )
+
 
     if indoor["levels"]:
 
         st.write(
-            "**الطوابق الموجودة:** "
+            "**الطوابق:** "
             + "، ".join(
                 f"الطابق {x}"
                 for x in indoor["levels"]
             )
         )
+
 
     st.write(
         f"🚪 المداخل: {len(indoor['entrances'])}"
@@ -1956,10 +2317,9 @@ if building and st.session_state.indoor_mode:
         f"🚻 دورات المياه: {len(indoor['toilets'])}"
     )
 
+
     st.info(
-        "المعلومات الداخلية هنا تعتمد على البيانات المتاحة فعليًا "
-        "في OpenStreetMap. المباني التي لا تحتوي بيانات داخلية "
-        "لن يتم اختراع غرف أو طوابق لها."
+        "لا يتم عرض أي عنصر داخلي إلا إذا كانت بياناته موجودة."
     )
 
 
@@ -1975,7 +2335,7 @@ if (
     st.divider()
 
     if st.button(
-        "🚀 احسب أفضل مسار خارجي",
+        "🚀 احسب أفضل مسار",
         use_container_width=True
     ):
 
@@ -1983,18 +2343,16 @@ if (
             "جاري تحليل المسارات..."
         ):
 
-            start = (
-                st.session_state.start_point
-            )
+            start = st.session_state.start_point
 
-            destination = (
-                st.session_state.destination_point
-            )
+            destination = st.session_state.destination_point
+
 
             routes = get_routes(
                 start,
                 destination
             )
+
 
             accessibility = (
                 get_accessibility_data(
@@ -2003,37 +2361,42 @@ if (
                 )
             )
 
+
             if routes:
 
-                scored_routes = []
+                scores = []
 
                 for route in routes:
 
-                    route_score = score_route(
+                    score = score_route(
                         route,
                         accessibility
                     )
 
-                    scored_routes.append(
+                    scores.append(
                         (
-                            route_score,
+                            score,
                             route
                         )
                     )
 
-                scored_routes.sort(
+
+                scores.sort(
                     key=lambda x: x[0],
                     reverse=True
                 )
 
+
                 best_score, best_route = (
-                    scored_routes[0]
+                    scores[0]
                 )
+
 
             else:
 
                 best_score = 0
                 best_route = None
+
 
             st.session_state.route_result = {
                 "start": start,
@@ -2042,6 +2405,7 @@ if (
                 "score": best_score,
                 "accessibility": accessibility
             }
+
 
             st.session_state.ai_answer = None
 
@@ -2056,6 +2420,7 @@ route_result = (
     st.session_state.route_result
 )
 
+
 if route_result:
 
     st.divider()
@@ -2064,19 +2429,28 @@ if route_result:
         "🚶 المسار المقترح"
     )
 
-    route = route_result["route"]
 
-    accessibility = (
-        route_result["accessibility"]
-    )
+    route = route_result[
+        "route"
+    ]
 
-    route_score = route_result["score"]
+
+    accessibility = route_result[
+        "accessibility"
+    ]
+
+
+    score = route_result[
+        "score"
+    ]
+
 
     if route:
 
         distance_km = (
             route["distance"] / 1000
         )
+
 
         minutes = max(
             1,
@@ -2085,35 +2459,37 @@ if route_result:
             )
         )
 
+
         c1, c2, c3, c4 = st.columns(4)
 
-        with c1:
-            st.metric(
-                "♿ مؤشر الإتاحة",
-                f"{route_score}%"
-            )
 
-        with c2:
-            st.metric(
-                "🛣️ المسافة",
-                f"{distance_km:.1f} كم"
-            )
+        c1.metric(
+            "♿ مؤشر الإتاحة",
+            f"{score}%"
+        )
 
-        with c3:
-            st.metric(
-                "⏱️ الوقت",
-                f"{minutes} دقيقة"
-            )
 
-        with c4:
-            st.metric(
-                "🛗 المصاعد",
-                len(
-                    accessibility[
-                        "elevators"
-                    ]
-                )
+        c2.metric(
+            "🛣️ المسافة",
+            f"{distance_km:.1f} كم"
+        )
+
+
+        c3.metric(
+            "⏱️ الوقت",
+            f"{minutes} دقيقة"
+        )
+
+
+        c4.metric(
+            "🛗 المصاعد",
+            len(
+                accessibility[
+                    "elevators"
+                ]
             )
+        )
+
 
         route_map = folium.Map(
             location=[
@@ -2121,6 +2497,7 @@ if route_result:
                     route_result["start"]["lat"]
                     + route_result["destination"]["lat"]
                 ) / 2,
+
                 (
                     route_result["start"]["lon"]
                     + route_result["destination"]["lon"]
@@ -2130,13 +2507,16 @@ if route_result:
             tiles="OpenStreetMap"
         )
 
+
+        # Start
+
         folium.Marker(
             [
                 route_result["start"]["lat"],
                 route_result["start"]["lon"]
             ],
             tooltip="🟢 البداية",
-            popup="🟢 نقطة البداية",
+            popup="🟢 البداية",
             icon=folium.Icon(
                 color="green",
                 icon="play",
@@ -2145,6 +2525,9 @@ if route_result:
         ).add_to(
             route_map
         )
+
+
+        # Destination
 
         folium.Marker(
             [
@@ -2162,17 +2545,21 @@ if route_result:
             route_map
         )
 
-        route_points = [
+
+        # Route
+
+        points = [
             [
-                coordinate[1],
-                coordinate[0]
+                coord[1],
+                coord[0]
             ]
-            for coordinate
+            for coord
             in route["geometry"]["coordinates"]
         ]
 
+
         folium.PolyLine(
-            route_points,
+            points,
             color="#7657ff",
             weight=7,
             opacity=0.9,
@@ -2180,6 +2567,9 @@ if route_result:
         ).add_to(
             route_map
         )
+
+
+        # Elevators
 
         for point in accessibility[
             "elevators"
@@ -2191,7 +2581,7 @@ if route_result:
                     point["lon"]
                 ],
                 tooltip="🛗 مصعد",
-                popup="🛗 مصعد مسجل على الخريطة.",
+                popup="🛗 مصعد مسجل.",
                 icon=folium.Icon(
                     color="blue",
                     icon="arrow-up",
@@ -2200,6 +2590,9 @@ if route_result:
             ).add_to(
                 route_map
             )
+
+
+        # Ramps
 
         for point in accessibility[
             "ramps"
@@ -2221,6 +2614,9 @@ if route_result:
                 route_map
             )
 
+
+        # Stairs
+
         for point in accessibility[
             "stairs"
         ]:
@@ -2241,6 +2637,9 @@ if route_result:
                 route_map
             )
 
+
+        # Wheelchair Yes
+
         for point in accessibility[
             "wheelchair_yes"
         ]:
@@ -2260,6 +2659,9 @@ if route_result:
                 route_map
             )
 
+
+        # Wheelchair No
+
         for point in accessibility[
             "wheelchair_no"
         ]:
@@ -2274,24 +2676,27 @@ if route_result:
                 fill=True,
                 fill_opacity=0.9,
                 tooltip="⚠️ غير مهيأ",
-                popup="⚠️ موقع مسجل كغير مهيأ."
+                popup="⚠️ غير مهيأ مسجل."
             ).add_to(
                 route_map
             )
+
 
         st_folium(
             route_map,
             width=None,
             height=620,
-            returned_objects=[]
+            returned_objects=[],
+            key="route_result_map"
         )
+
 
         with st.expander(
             "📍 معنى العلامات"
         ):
 
             st.write(
-                "🏢 **مبنى قابل للفتح** — توجد له بيانات داخلية."
+                "🏢 **مبنى قابل للفتح** — اضغط عليه لفتح الخريطة الداخلية."
             )
 
             st.write(
@@ -2326,8 +2731,9 @@ if route_result:
                 "⚠️ **غير مهيأ** — موقع مسجل كغير مناسب."
             )
 
+
         if (
-            route_score >= 80
+            score >= 80
             and not accessibility["stairs"]
         ):
 
@@ -2338,21 +2744,20 @@ if route_result:
         elif accessibility["stairs"]:
 
             st.warning(
-                "⚠️ توجد درجات مسجلة قرب منطقة المسار. "
-                "راجع العلامات على الخريطة."
+                "⚠️ توجد درجات مسجلة قرب منطقة المسار."
             )
 
         else:
 
             st.info(
-                "بيانات الإتاحة محدودة؛ عدم وجود علامة "
-                "لا يعني أن المكان مهيأ."
+                "بيانات الإتاحة محدودة."
             )
+
 
     else:
 
         st.error(
-            "تعذر العثور على مسار للمشاة بين النقطتين."
+            "تعذر العثور على مسار."
         )
 
 
@@ -2366,14 +2771,16 @@ st.header(
     "✨ VerifyAI"
 )
 
+
 if st.button(
-    "✨ تحليل المكان والمسار",
+    "✨ تحليل المكان بالذكاء الاصطناعي",
     use_container_width=True
 ):
 
     api_key = os.getenv(
         "OPENAI_API_KEY"
     )
+
 
     if not api_key:
 
@@ -2386,6 +2793,7 @@ if st.button(
         except Exception:
 
             api_key = None
+
 
     if not api_key:
 
@@ -2403,9 +2811,11 @@ if st.button(
                 api_key=api_key
             )
 
+
             building = (
                 st.session_state.selected_building
             )
+
 
             indoor = (
                 building.get(
@@ -2416,48 +2826,56 @@ if st.button(
                 else {}
             )
 
-            route_info = (
-                st.session_state.route_result
-            )
 
             prompt = f"""
 أنت VerifyAI Access، مساعد متخصص في الوصول الشامل.
 
-المعلومات المتاحة:
+بيانات المبنى:
 
-هل يوجد مسار خارجي:
-{bool(route_info and route_info.get("route"))}
+المداخل:
+{len(indoor.get("entrances", []))}
 
-معلومات المبنى:
-المداخل = {len(indoor.get("entrances", []))}
-المصاعد = {len(indoor.get("elevators", []))}
-الأماكن الداخلية = {len(indoor.get("rooms", []))}
-السلالم = {len(indoor.get("stairs", []))}
-دورات المياه = {len(indoor.get("toilets", []))}
-الطوابق = {", ".join(indoor.get("levels", [])) if indoor.get("levels") else "غير متوفرة"}
+المصاعد:
+{len(indoor.get("elevators", []))}
+
+الأماكن الداخلية:
+{len(indoor.get("rooms", []))}
+
+السلالم:
+{len(indoor.get("stairs", []))}
+
+دورات المياه:
+{len(indoor.get("toilets", []))}
+
+الطوابق:
+{", ".join(indoor.get("levels", [])) if indoor.get("levels") else "غير متوفرة"}
 
 القواعد:
-- لا تخترع أي معلومة.
-- لا تقل إن الوصول مضمون 100%.
-- إذا لم توجد بيانات داخلية كافية فقل ذلك.
-- اشرح معنى العلامات المهمة.
-- اذكر أن البيانات قد تكون ناقصة أو قديمة.
-- أجب بالعربية بشكل واضح ومختصر.
+
+- لا تخترع أي معلومات.
+- لا تقل إن المكان مضمون 100%.
+- إذا لم توجد بيانات داخلية كافية، وضح ذلك.
+- اشرح للمستخدم العلامات المهمة.
+- اذكر أن بيانات OpenStreetMap قد تكون ناقصة.
+- أجب بالعربية بشكل واضح.
 """
+
 
             response = client.responses.create(
                 model=MODEL,
                 input=prompt
             )
 
+
             st.session_state.ai_answer = (
                 response.output_text
             )
 
+
         except Exception as error:
 
             st.error(
-                f"حدث خطأ في الذكاء الاصطناعي: {error}"
+                f"حدث خطأ: {error}"
             )
 
 
