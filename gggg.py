@@ -6,7 +6,9 @@ import json
 import requests
 import streamlit as st
 import folium
+
 from streamlit_folium import st_folium
+
 
 # =========================================================
 # OPTIONAL OPENAI
@@ -19,7 +21,7 @@ except ImportError:
 
 
 # =========================================================
-# PAGE CONFIG
+# PAGE
 # =========================================================
 st.set_page_config(
     page_title="VerifyAI Access",
@@ -39,17 +41,20 @@ OSRM_URL = "https://router.project-osrm.org/route/v1/foot"
 DEFAULT_CENTER = (21.5433, 39.1728)
 
 HEADERS = {
-    "User-Agent": "VerifyAI-Access/13.0"
+    "User-Agent": "VerifyAI-Access/14.0"
 }
 
-# يمكنك تغييره من Secrets
-MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
+# OpenAI
+MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "gpt-6-luna"
+)
 
-# حد أقصى لطلبات AI داخل جلسة واحدة
+# حفاظًا على رصيد API
 MAX_AI_CALLS_PER_SESSION = 10
 
-# البحث التلقائي على الويب فقط عندما تكون البيانات ناقصة
-AUTO_AI_WEB_SEARCH = True
+# يبحث AI تلقائيًا عند نقص البيانات
+AUTO_AI_SEARCH = True
 
 
 # =========================================================
@@ -67,7 +72,9 @@ def get_secret(name):
         return ""
 
 
-OPENAI_KEY = get_secret("OPENAI_API_KEY")
+OPENAI_KEY = get_secret(
+    "OPENAI_API_KEY"
+)
 
 
 # =========================================================
@@ -76,6 +83,7 @@ OPENAI_KEY = get_secret("OPENAI_API_KEY")
 openai_client = None
 
 if OPENAI_AVAILABLE and OPENAI_KEY:
+
     try:
         openai_client = OpenAI(
             api_key=OPENAI_KEY
@@ -157,6 +165,55 @@ html, body, [class*="css"] {
     line-height: 2;
 }
 
+.score-card {
+    background: white;
+    border-radius: 22px;
+    padding: 22px;
+    margin-bottom: 16px;
+    border: 1px solid #e5defd;
+    box-shadow: 0 7px 28px rgba(80,60,150,.08);
+}
+
+.score-number {
+    font-size: 54px;
+    line-height: 1;
+    font-weight: 800;
+    color: #7657ff;
+}
+
+.score-label {
+    color: #6b6478;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.score-good {
+    background: #eaf9f0;
+    border: 1px solid #bde8ca;
+    color: #137a43;
+    border-radius: 14px;
+    padding: 10px 13px;
+    margin-bottom: 9px;
+}
+
+.score-unknown {
+    background: #fff8e7;
+    border: 1px solid #f1dda2;
+    color: #8a6500;
+    border-radius: 14px;
+    padding: 10px 13px;
+    margin-bottom: 9px;
+}
+
+.score-bad {
+    background: #fff0f0;
+    border: 1px solid #f0c6c6;
+    color: #a63333;
+    border-radius: 14px;
+    padding: 10px 13px;
+    margin-bottom: 9px;
+}
+
 .parking-card {
     background: white;
     border: 2px solid #cfe4ff;
@@ -205,16 +262,16 @@ html, body, [class*="css"] {
     margin-top: 10px;
 }
 
+.small-muted {
+    color: #777;
+    font-size: 13px;
+}
+
 .footer {
     text-align: center;
     color: #888;
     font-size: 12px;
     margin-top: 30px;
-}
-
-.small-muted {
-    color: #777;
-    font-size: 13px;
 }
 
 </style>
@@ -224,7 +281,7 @@ html, body, [class*="css"] {
 
 
 # =========================================================
-# SESSION STATE
+# SESSION
 # =========================================================
 DEFAULTS = {
     "page": "🗺️ الخريطة",
@@ -237,6 +294,7 @@ DEFAULTS = {
     "center": DEFAULT_CENTER,
 
     "building_details": None,
+
     "service": "overview",
 
     "selection_mode": None,
@@ -255,59 +313,95 @@ DEFAULTS = {
 
     "map_key": 0,
 
+    # AI
     "ai_calls": 0,
-    "ai_answer": "",
     "ai_question": "",
-    "ai_history": [],
-
+    "ai_answer": "",
     "auto_ai_checked": False,
     "auto_ai_answer": "",
+    "ai_history": [],
+
+    # Score
+    "score_details": None,
 }
 
 for key, value in DEFAULTS.items():
+
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # =========================================================
-# HELPERS
+# BASIC HELPERS
 # =========================================================
-def safe_float(value, default=None):
+def safe_float(
+    value,
+    default=None
+):
+
     try:
         return float(value)
     except Exception:
         return default
 
 
-def distance_m(lat1, lon1, lat2, lon2):
+def distance_m(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
+
     R = 6371000.0
 
     p1 = math.radians(lat1)
     p2 = math.radians(lat2)
 
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
+    dp = math.radians(
+        lat2 - lat1
+    )
+
+    dl = math.radians(
+        lon2 - lon1
+    )
 
     a = (
         math.sin(dp / 2) ** 2
+
         + math.cos(p1)
         * math.cos(p2)
         * math.sin(dl / 2) ** 2
     )
 
-    return 2 * R * math.asin(
-        math.sqrt(a)
+    return (
+        2
+        * R
+        * math.asin(
+            math.sqrt(a)
+        )
     )
 
 
 def element_center(element):
-    center = element.get("center")
+
+    center = element.get(
+        "center"
+    )
 
     if center:
-        lat = safe_float(center.get("lat"))
-        lon = safe_float(center.get("lon"))
 
-        if lat is not None and lon is not None:
+        lat = safe_float(
+            center.get("lat")
+        )
+
+        lon = safe_float(
+            center.get("lon")
+        )
+
+        if (
+            lat is not None
+            and lon is not None
+        ):
             return lat, lon
 
     geometry = element.get(
@@ -316,22 +410,24 @@ def element_center(element):
     )
 
     if geometry:
+
         lats = [
-            p["lat"]
-            for p in geometry
-            if "lat" in p
+            point["lat"]
+            for point in geometry
+            if "lat" in point
         ]
 
         lons = [
-            p["lon"]
-            for p in geometry
-            if "lon" in p
+            point["lon"]
+            for point in geometry
+            if "lon" in point
         ]
 
         if lats and lons:
+
             return (
                 sum(lats) / len(lats),
-                sum(lons) / len(lons),
+                sum(lons) / len(lons)
             )
 
     lat = safe_float(
@@ -342,24 +438,40 @@ def element_center(element):
         element.get("lon")
     )
 
-    if lat is not None and lon is not None:
+    if (
+        lat is not None
+        and lon is not None
+    ):
         return lat, lon
 
     return None
 
 
-def point_in_polygon(lat, lon, poly):
-    if not poly or len(poly) < 3:
+def point_in_polygon(
+    lat,
+    lon,
+    polygon
+):
+
+    if (
+        not polygon
+        or len(polygon) < 3
+    ):
         return False
 
     inside = False
-    j = len(poly) - 1
+    j = len(polygon) - 1
 
-    for i in range(len(poly)):
-        yi, xi = poly[i]
-        yj, xj = poly[j]
+    for i in range(len(polygon)):
 
-        if (xi > lon) != (xj > lon):
+        yi, xi = polygon[i]
+        yj, xj = polygon[j]
+
+        if (
+            (xi > lon)
+            !=
+            (xj > lon)
+        ):
 
             cross = (
                 (yj - yi)
@@ -377,19 +489,24 @@ def point_in_polygon(lat, lon, poly):
 
 
 def feature_level(tags):
+
     for key in (
         "level",
         "level:ref",
         "floor",
         "addr:floor",
     ):
+
         if tags.get(key) is not None:
-            return str(tags[key])
+            return str(
+                tags.get(key)
+            )
 
     return None
 
 
 def floor_label(value):
+
     if value is None:
         return "الطابق غير محدد"
 
@@ -416,7 +533,11 @@ def floor_label(value):
     )
 
 
-def get_name(tags, fallback="بدون اسم"):
+def get_name(
+    tags,
+    fallback="بدون اسم"
+):
+
     for key in (
         "name:ar",
         "name",
@@ -424,6 +545,7 @@ def get_name(tags, fallback="بدون اسم"):
         "brand",
         "operator",
     ):
+
         if tags.get(key):
             return tags[key]
 
@@ -431,6 +553,7 @@ def get_name(tags, fallback="بدون اسم"):
 
 
 def accessible_tag(tags):
+
     values = {
         str(
             tags.get(
@@ -452,11 +575,14 @@ def accessible_tag(tags):
             "yes",
             "designated",
             "accessible",
-        } & values
+        }
+        &
+        values
     )
 
 
 def ai_available():
+
     return (
         openai_client is not None
         and bool(OPENAI_KEY)
@@ -464,6 +590,7 @@ def ai_available():
 
 
 def ai_remaining():
+
     return max(
         0,
         MAX_AI_CALLS_PER_SESSION
@@ -471,7 +598,11 @@ def ai_remaining():
     )
 
 
-def set_center(lat, lon):
+def set_center(
+    lat,
+    lon
+):
+
     st.session_state.center = (
         lat,
         lon
@@ -480,36 +611,45 @@ def set_center(lat, lon):
     st.session_state.building_details = None
     st.session_state.service = "overview"
 
-    st.session_state.ai_answer = ""
     st.session_state.ai_question = ""
+    st.session_state.ai_answer = ""
     st.session_state.auto_ai_answer = ""
     st.session_state.auto_ai_checked = False
+    st.session_state.score_details = None
 
     st.session_state.map_key += 1
 
 
 # =========================================================
-# NOMINATIM
+# REVERSE GEOCODE
 # =========================================================
 @st.cache_data(
     ttl=120,
     show_spinner=False
 )
-def reverse_geocode(lat, lon):
+def reverse_geocode(
+    lat,
+    lon
+):
+
     try:
+
         response = requests.get(
             f"{NOMINATIM_URL}/reverse",
+
             params={
                 "lat": lat,
                 "lon": lon,
                 "format": "json",
                 "accept-language": "ar,en",
             },
+
             headers=HEADERS,
             timeout=15,
         )
 
         if response.ok:
+
             return response.json().get(
                 "display_name",
                 "موقع محدد"
@@ -521,17 +661,28 @@ def reverse_geocode(lat, lon):
     return "موقع محدد"
 
 
+# =========================================================
+# SEARCH
+# =========================================================
 @st.cache_data(
     ttl=120,
     show_spinner=False
 )
-def search_osm_places(query):
-    if not query or not query.strip():
+def search_osm_places(
+    query
+):
+
+    if (
+        not query
+        or not query.strip()
+    ):
         return []
 
     try:
+
         response = requests.get(
             f"{NOMINATIM_URL}/search",
+
             params={
                 "q": query,
                 "format": "json",
@@ -539,6 +690,7 @@ def search_osm_places(query):
                 "addressdetails": 1,
                 "accept-language": "ar,en",
             },
+
             headers=HEADERS,
             timeout=15,
         )
@@ -553,7 +705,7 @@ def search_osm_places(query):
 
 
 # =========================================================
-# BUILDING DATA
+# BUILDING DETAILS
 # =========================================================
 @st.cache_data(
     ttl=300,
@@ -575,6 +727,7 @@ def get_building_details(
       nwr["amenity"="toilets"](around:{radius},{lat},{lon});
       nwr["elevator"](around:{radius},{lat},{lon});
       nwr["entrance"](around:{radius},{lat},{lon});
+
       nwr["highway"="steps"](around:{radius},{lat},{lon});
 
       nwr["room"](around:{radius},{lat},{lon});
@@ -582,13 +735,15 @@ def get_building_details(
       nwr["level"](around:{radius},{lat},{lon});
 
       nwr["wheelchair"](around:{radius},{lat},{lon});
-      nwr["amenity"="parking"](around:{radius},{lat},{lon});
+
+      nwr["ramp"](around:{radius},{lat},{lon});
     );
 
     out body geom center;
     """
 
     try:
+
         response = requests.post(
             OVERPASS_URL,
             data=query,
@@ -642,17 +797,27 @@ def get_building_details(
 
                 if (
                     "lat" in point
-                    and "lon" in point
+                    and
+                    "lon" in point
                 )
             ]
 
             buildings.append(
                 {
-                    "type": element.get("type"),
-                    "id": element.get("id"),
-                    "tags": tags,
-                    "center": center,
-                    "polygon": polygon,
+                    "type":
+                        element.get("type"),
+
+                    "id":
+                        element.get("id"),
+
+                    "tags":
+                        tags,
+
+                    "center":
+                        center,
+
+                    "polygon":
+                        polygon,
                 }
             )
 
@@ -678,6 +843,8 @@ def get_building_details(
                     is not None,
 
                     tags.get("wheelchair"),
+
+                    tags.get("ramp"),
                 ]
             ):
 
@@ -702,12 +869,15 @@ def get_building_details(
 
     selected = min(
         buildings,
+
         key=lambda building:
+
             0
 
             if (
                 building["polygon"]
-                and point_in_polygon(
+                and
+                point_in_polygon(
                     lat,
                     lon,
                     building["polygon"]
@@ -721,12 +891,13 @@ def get_building_details(
             )
     )
 
-    distance = (
+    selected_distance = (
         0
 
         if (
             selected["polygon"]
-            and point_in_polygon(
+            and
+            point_in_polygon(
                 lat,
                 lon,
                 selected["polygon"]
@@ -740,25 +911,33 @@ def get_building_details(
         )
     )
 
-    if distance > 400:
+    if selected_distance > 400:
         return None
 
     result = {
-        "building": selected,
-        "distance": distance,
+
+        "building":
+            selected,
+
+        "distance":
+            selected_distance,
 
         "toilets": [],
+
         "accessible_toilets": [],
 
         "elevators": [],
 
         "entrances": [],
+
         "accessible_entrances": [],
 
         "stairs": [],
+
         "ramps": [],
 
         "rooms": [],
+
         "wheelchair_features": [],
 
         "levels": set(),
@@ -768,14 +947,15 @@ def get_building_details(
 
         inside = (
             selected["polygon"]
-            and point_in_polygon(
+            and
+            point_in_polygon(
                 feature["center"][0],
                 feature["center"][1],
                 selected["polygon"]
             )
         )
 
-        near = (
+        nearby = (
             distance_m(
                 *feature["center"],
                 *selected["center"]
@@ -784,7 +964,7 @@ def get_building_details(
 
         if not (
             inside
-            or near
+            or nearby
         ):
             continue
 
@@ -799,7 +979,10 @@ def get_building_details(
                 level
             )
 
-        if tags.get("amenity") == "toilets":
+        if (
+            tags.get("amenity")
+            == "toilets"
+        ):
 
             result["toilets"].append(
                 feature
@@ -808,15 +991,20 @@ def get_building_details(
             if accessible_tag(
                 tags
             ):
+
                 result[
                     "accessible_toilets"
-                ].append(feature)
+                ].append(
+                    feature
+                )
 
         if (
             tags.get("elevator")
-            or tags.get("indoor")
+            or
+            tags.get("indoor")
             == "elevator"
         ):
+
             result["elevators"].append(
                 feature
             )
@@ -837,45 +1025,58 @@ def get_building_details(
                 in {
                     "yes",
                     "designated",
-                    "accessible",
+                    "accessible"
                 }
             ):
+
                 result[
                     "accessible_entrances"
-                ].append(feature)
+                ].append(
+                    feature
+                )
 
-        if tags.get("highway") == "steps":
+        if (
+            tags.get("highway")
+            == "steps"
+        ):
+
             result["stairs"].append(
                 feature
             )
 
-        if (
-            tags.get("ramp")
-            or tags.get("highway")
-            == "incline"
-        ):
+        if tags.get("ramp"):
+
             result["ramps"].append(
                 feature
             )
 
         if (
             tags.get("room")
-            or tags.get("indoor")
+            or
+            tags.get("indoor")
             == "room"
         ):
+
             result["rooms"].append(
                 feature
             )
 
         if tags.get("wheelchair"):
+
             result[
                 "wheelchair_features"
-            ].append(feature)
+            ].append(
+                feature
+            )
 
     result["levels"] = sorted(
         result["levels"],
+
         key=lambda value: (
-            safe_float(value, 999),
+            safe_float(
+                value,
+                999
+            ),
             value
         )
     )
@@ -927,6 +1128,7 @@ def get_accessible_parking(
     """
 
     try:
+
         response = requests.post(
             OVERPASS_URL,
             data=query,
@@ -975,7 +1177,8 @@ def get_accessible_parking(
         if (
             tags.get("parking_space")
             == "disabled"
-            or tags.get("disabled")
+            or
+            tags.get("disabled")
             == "designated"
         ):
 
@@ -1002,22 +1205,27 @@ def get_accessible_parking(
 
         results.append(
             {
-                "center": center,
+                "center":
+                    center,
 
-                "tags": tags,
-
-                "name": get_name(
+                "tags":
                     tags,
-                    "موقف ذوي الهمم"
-                ),
 
-                "kind": kind,
+                "name":
+                    get_name(
+                        tags,
+                        "موقف ذوي الهمم"
+                    ),
 
-                "distance": distance_m(
-                    lat,
-                    lon,
-                    *center
-                ),
+                "kind":
+                    kind,
+
+                "distance":
+                    distance_m(
+                        lat,
+                        lon,
+                        *center
+                    ),
             }
         )
 
@@ -1030,226 +1238,439 @@ def get_accessible_parking(
 
 
 # =========================================================
-# ROUTING
+# ACCESSIBILITY SCORE
 # =========================================================
-def get_routes(start, destination):
+def calculate_accessibility_score(
+    details,
+    parking_results
+):
+    """
+    هذا ليس اعتمادًا رسميًا للمبنى.
+    هو مؤشر لمدى وجود أدلة مسجلة عن
+    عناصر الوصول الشامل.
+    """
 
+    items = []
+
+    # -----------------------------------------------------
+    # 1. Accessible Entrance
+    # -----------------------------------------------------
     if (
-        not start
-        or not destination
+        details
+        and
+        details[
+            "accessible_entrances"
+        ]
     ):
-        return []
 
-    url = (
-        f"{OSRM_URL}/"
-        f"{start[1]},{start[0]};"
-        f"{destination[1]},{destination[0]}"
-    )
+        items.append(
+            {
+                "name":
+                    "🚪 مدخل مهيأ",
 
-    try:
+                "points":
+                    20,
 
-        response = requests.get(
-            url,
+                "status":
+                    "confirmed",
 
-            params={
-                "overview": "full",
-                "geometries": "geojson",
-                "steps": "true",
-                "alternatives": "true",
-            },
-
-            headers=HEADERS,
-            timeout=30,
+                "reason":
+                    "يوجد مدخل موسوم كمهيأ في بيانات الخريطة.",
+            }
         )
 
-        if response.ok:
-            return response.json().get(
-                "routes",
-                []
-            )
+    elif (
+        details
+        and
+        details["entrances"]
+    ):
 
-    except Exception:
-        pass
+        items.append(
+            {
+                "name":
+                    "🚪 مدخل مهيأ",
 
-    return []
+                "points":
+                    0,
 
+                "status":
+                    "unknown",
 
-def route_score(route):
-    return (
-        route.get("distance", 0)
-        + 0.5
-        * route.get("duration", 0)
+                "reason":
+                    "يوجد مدخل، لكن لا توجد علامة وصول كافية لتأكيد أنه مهيأ.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "🚪 مدخل مهيأ",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد بيانات كافية عن المدخل.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 2. Elevator
+    # -----------------------------------------------------
+    if (
+        details
+        and
+        details["elevators"]
+    ):
+
+        items.append(
+            {
+                "name":
+                    "🛗 مصعد",
+
+                "points":
+                    15,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    "تم العثور على عنصر مصعد في بيانات الخريطة.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "🛗 مصعد",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد بيانات مؤكدة عن المصعد.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 3. Accessible Toilet
+    # -----------------------------------------------------
+    if (
+        details
+        and
+        details[
+            "accessible_toilets"
+        ]
+    ):
+
+        items.append(
+            {
+                "name":
+                    "🚻 حمام مهيأ",
+
+                "points":
+                    15,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    "تم العثور على حمام موسوم بإمكانية الوصول.",
+            }
+        )
+
+    elif (
+        details
+        and
+        details["toilets"]
+    ):
+
+        items.append(
+            {
+                "name":
+                    "🚻 حمام مهيأ",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "يوجد حمام، لكن لم يتم تأكيد تهيئته.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "🚻 حمام مهيأ",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد بيانات كافية عن الحمام.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 4. Accessible Parking
+    # -----------------------------------------------------
+    if parking_results:
+
+        items.append(
+            {
+                "name":
+                    "🅿️ موقف ذوي الهمم",
+
+                "points":
+                    15,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    f"تم العثور على {len(parking_results)} موقف مسجل قريبًا.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "🅿️ موقف ذوي الهمم",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لم يتم العثور على إحداثيات مواقف مهيأة.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 5. Ramp
+    # -----------------------------------------------------
+    if (
+        details
+        and
+        details["ramps"]
+    ):
+
+        items.append(
+            {
+                "name":
+                    "♿ منحدر",
+
+                "points":
+                    15,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    "تم العثور على عنصر منحدر في الخريطة.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "♿ منحدر",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد بيانات كافية عن المنحدرات.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 6. Indoor Data
+    # -----------------------------------------------------
+    if (
+        details
+        and
+        (
+            details["rooms"]
+            or
+            details["levels"]
+        )
+    ):
+
+        items.append(
+            {
+                "name":
+                    "🏢 معلومات داخلية",
+
+                "points":
+                    10,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    "هناك عناصر داخلية أو طوابق مسجلة.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "🏢 معلومات داخلية",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد خريطة داخلية كافية.",
+            }
+        )
+
+    # -----------------------------------------------------
+    # 7. Wheelchair Accessibility Tags
+    # -----------------------------------------------------
+    if (
+        details
+        and
+        details[
+            "wheelchair_features"
+        ]
+    ):
+
+        items.append(
+            {
+                "name":
+                    "♿ بيانات وصول إضافية",
+
+                "points":
+                    10,
+
+                "status":
+                    "confirmed",
+
+                "reason":
+                    "وجدت عناصر موسومة بإمكانية الوصول.",
+            }
+        )
+
+    else:
+
+        items.append(
+            {
+                "name":
+                    "♿ بيانات وصول إضافية",
+
+                "points":
+                    0,
+
+                "status":
+                    "unknown",
+
+                "reason":
+                    "لا توجد وسوم وصول إضافية كافية.",
+            }
+        )
+
+    score = sum(
+        item["points"]
+        for item in items
     )
 
-
-# =========================================================
-# MAP MARKERS
-# =========================================================
-def parking_marker(
-    map_object,
-    parking,
-    large=True
-):
-
-    lat, lon = parking["center"]
-
-    size = 62 if large else 48
-    font = 31 if large else 24
-
-    icon = f"""
-    <div style="
-        width:{size}px;
-        height:{size}px;
-        background:#087cff;
-        border:5px solid white;
-        border-radius:50%;
-        box-shadow:
-            0 0 0 7px rgba(8,124,255,.28),
-            0 5px 16px rgba(0,0,0,.35);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size:{font}px;
-        color:white;
-    ">
-        ♿
-    </div>
-    """
-
-    popup = f"""
-    <div style="
-        direction:rtl;
-        font-family:Arial;
-        min-width:220px;
-    ">
-
-        <b style="font-size:17px">
-            🅿️ {html.escape(parking["name"])}
-        </b>
-
-        <hr>
-
-        ♿ {html.escape(parking["kind"])}
-
-        <br><br>
-
-        📏 {int(parking["distance"])}
-        متر من مركز البحث
-
-    </div>
-    """
-
-    folium.CircleMarker(
-        [lat, lon],
-        radius=32 if large else 25,
-        color="#087cff",
-        fill=True,
-        fill_color="#087cff",
-        fill_opacity=.18,
-        weight=3,
-    ).add_to(map_object)
-
-    folium.Marker(
-        [lat, lon],
-
-        tooltip=(
-            "🅿️ ♿ "
-            + parking["name"]
-        ),
-
-        popup=folium.Popup(
-            popup,
-            max_width=320
-        ),
-
-        icon=folium.DivIcon(
-            html=icon
-        ),
-    ).add_to(map_object)
-
-
-def building_marker(
-    map_object,
-    details
-):
-
-    building = details["building"]
-
-    lat, lon = building["center"]
-
-    name = get_name(
-        building["tags"],
-        "المبنى"
+    confirmed = sum(
+        1
+        for item in items
+        if item["status"]
+        == "confirmed"
     )
 
-    icon = """
-    <div style="
-        width:50px;
-        height:50px;
-        background:#7657ff;
-        border:5px solid white;
-        border-radius:50%;
-        box-shadow:
-            0 4px 16px rgba(0,0,0,.35);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size:26px;
-    ">
-        🏢
-    </div>
-    """
+    unknown = sum(
+        1
+        for item in items
+        if item["status"]
+        == "unknown"
+    )
 
-    popup = f"""
-    <div style="
-        direction:rtl;
-        font-family:Arial;
-    ">
+    # -----------------------------------------------------
+    # INTERPRETATION
+    # -----------------------------------------------------
+    if confirmed == 0:
 
-        <b>
-            🏢 {html.escape(name)}
-        </b>
+        level = (
+            "لا توجد أدلة كافية"
+        )
 
-        <hr>
+    elif score >= 80:
 
-        🚻 حمامات مهيأة:
-        {len(details["accessible_toilets"])}
+        level = (
+            "أدلة وصول قوية"
+        )
 
-        <br>
+    elif score >= 60:
 
-        🛗 مصاعد:
-        {len(details["elevators"])}
+        level = (
+            "أدلة وصول جيدة"
+        )
 
-        <br>
+    elif score >= 40:
 
-        🚪 مداخل:
-        {len(details["entrances"])}
+        level = (
+            "أدلة وصول جزئية"
+        )
 
-        <br>
+    else:
 
-        🪜 درج:
-        {len(details["stairs"])}
+        level = (
+            "بيانات محدودة"
+        )
 
-    </div>
-    """
+    return {
+        "score":
+            score,
 
-    folium.Marker(
-        [lat, lon],
+        "level":
+            level,
 
-        tooltip=(
-            "🏢 "
-            + name
-        ),
+        "confirmed":
+            confirmed,
 
-        popup=folium.Popup(
-            popup,
-            max_width=320
-        ),
+        "unknown":
+            unknown,
 
-        icon=folium.DivIcon(
-            html=icon
-        ),
-    ).add_to(map_object)
+        "items":
+            items,
+    }
 
 
 # =========================================================
@@ -1263,15 +1684,19 @@ def build_place_context(
 ):
 
     context = {
-        "address":
+
+        "location":
             reverse_geocode(
                 lat,
                 lon
             ),
 
         "coordinates": {
-            "latitude": lat,
-            "longitude": lon,
+            "latitude":
+                lat,
+
+            "longitude":
+                lon,
         },
     }
 
@@ -1282,10 +1707,10 @@ def build_place_context(
         ]
 
         context[
-            "openstreetmap_building"
+            "openstreetmap"
         ] = {
 
-            "name":
+            "building_name":
                 get_name(
                     building["tags"],
                     "غير محدد"
@@ -1294,7 +1719,7 @@ def build_place_context(
             "tags":
                 building["tags"],
 
-            "distance_from_selected_point":
+            "distance_from_point_m":
                 round(
                     details["distance"]
                 ),
@@ -1303,13 +1728,6 @@ def build_place_context(
                 len(
                     details[
                         "accessible_toilets"
-                    ]
-                ),
-
-            "all_toilets":
-                len(
-                    details[
-                        "toilets"
                     ]
                 ),
 
@@ -1351,39 +1769,55 @@ def build_place_context(
 
             "levels":
                 details["levels"],
+
+            "wheelchair_features":
+                len(
+                    details[
+                        "wheelchair_features"
+                    ]
+                ),
         }
 
     else:
 
         context[
-            "openstreetmap_building"
-        ] = "لم يتم العثور على مبنى واضح في النقطة المحددة."
+            "openstreetmap"
+        ] = (
+            "لم يتم العثور على مبنى واضح "
+            "في النقطة المحددة."
+        )
 
     context[
         "nearby_accessible_parking"
     ] = [
+
         {
-            "name": item["name"],
-            "kind": item["kind"],
+            "name":
+                item["name"],
+
+            "kind":
+                item["kind"],
+
             "distance_m":
                 round(
                     item["distance"]
                 ),
         }
 
-        for item in parking_results[:15]
+        for item
+        in parking_results[:15]
     ]
 
     return context
 
 
 # =========================================================
-# AI CALL
+# AI
 # =========================================================
 def ask_verifyai(
     question,
-    place_context,
-    web_search=True
+    context,
+    use_web=True
 ):
 
     if not ai_available():
@@ -1401,47 +1835,43 @@ def ask_verifyai(
             "الذكاء الاصطناعي في هذه الجلسة."
         )
 
-    system_prompt = """
-أنت VerifyAI Access، مساعد ذكاء اصطناعي
-للوصول الشامل والتنقل للأشخاص ذوي الهمم.
+    instructions = """
+أنت VerifyAI Access.
 
-وظيفتك المساعدة في معرفة:
+أنت مساعد متخصص في:
+- إمكانية الوصول
+- التنقل لذوي الهمم
+- الوصول داخل المباني
+- المداخل المهيأة
+- المصاعد
+- الحمامات المهيأة
+- مواقف ذوي الهمم
+- المنحدرات
 
-• المداخل المهيأة
-• المصاعد
-• الحمامات المهيأة
-• مواقف ذوي الهمم
-• المنحدرات
-• الوصول داخل المباني
-• المعلومات العامة عن إمكانية الوصول
+قواعدك:
 
-قواعد صارمة:
-
-1. لا تخترع أي معلومة.
-2. إذا لم توجد بيانات كافية، قل:
-   "غير مؤكد".
-3. لا تعتبر غياب المعلومة دليلًا على عدم وجود الشيء.
-4. بيانات OpenStreetMap قد تكون ناقصة أو قديمة.
-5. إذا كان السؤال عن مكان محدد وكانت البيانات ناقصة،
-   استخدم البحث على الويب إذا كان متاحًا.
-6. عند استخدام الويب، اعتمد على صفحات موثوقة قدر الإمكان.
-7. لا تقل "يوجد" إلا عندما يوجد دليل مناسب.
-8. لا تقل "لا يوجد" فقط لأن OpenStreetMap لا يحتوي على المعلومة.
-9. أعط المستخدم درجة ثقة:
-   مؤكدة / مرجحة / غير مؤكدة.
-10. اذكر المصدر أو اسم الموقع عندما يكون ذلك متاحًا.
-11. إذا لم تجد شيئًا موثوقًا، قل ذلك بوضوح.
-12. لا تدّعي وجود خريطة داخلية إذا لم تتوفر بيانات داخلية.
-13. أجب بالعربية.
-14. اجعل الإجابة سهلة وسريعة.
-15. ركز على إمكانية الوصول فقط.
+1. لا تخترع معلومات.
+2. لا تعتبر عدم وجود بيانات دليلًا على عدم وجود الخدمة.
+3. OpenStreetMap قد يكون ناقصًا أو غير محدث.
+4. إذا كانت البيانات ناقصة، استخدم Web Search عند توفره.
+5. عند استخدام الويب، اعتمد على مصادر موثوقة.
+6. اذكر مصدر المعلومة عندما يكون متاحًا.
+7. فرّق بين:
+   - مؤكد
+   - مرجح
+   - غير مؤكد
+8. لا تعطِ شهادة رسمية للمبنى.
+9. لا تدّعي أن المكان آمن أو مطابق للمعايير إلا بدليل رسمي.
+10. الهدف هو مساعدة المستخدم على اتخاذ قرار أفضل.
+11. أجب بالعربية.
+12. اجعل الجواب واضحًا ومباشرًا.
 """
 
-    user_prompt = f"""
-هذه بيانات المكان الحالية:
+    prompt = f"""
+بيانات المكان:
 
 {json.dumps(
-    place_context,
+    context,
     ensure_ascii=False,
     indent=2
 )}
@@ -1450,69 +1880,80 @@ def ask_verifyai(
 
 {question}
 
-حلل بيانات OpenStreetMap أولًا.
+حلل البيانات الموجودة أولًا.
 
-إذا كانت البيانات غير كافية وكان البحث على الويب
-مفعّلًا، ابحث عن معلومات إضافية مرتبطة بالمكان.
+إذا كانت غير كافية وكان البحث على الويب متاحًا،
+ابحث عن معلومات إضافية تخص المكان.
 
-في النهاية قدم:
+أجب بهذا الشكل:
 
 الإجابة:
 ...
 
-درجة الثقة:
+الثقة:
 مؤكدة / مرجحة / غير مؤكدة
 
 المصدر:
 ...
 
-ملاحظة:
-اذكر بوضوح إذا كانت المعلومة تحتاج تحققًا ميدانيًا.
+التحقق:
+اذكر إذا كانت هناك حاجة للتحقق الميداني.
 """
 
     try:
 
         tools = []
 
-        if web_search:
+        if use_web:
+
             tools = [
                 {
-                    "type": "web_search",
-                    "search_context_size": "low",
+                    "type":
+                        "web_search",
+
+                    "search_context_size":
+                        "low",
                 }
             ]
 
-        response = openai_client.responses.create(
+        response = (
+            openai_client
+            .responses
+            .create(
 
-            model=MODEL,
+                model=MODEL,
 
-            instructions=system_prompt,
+                instructions=instructions,
 
-            input=[
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                }
-            ],
+                input=[
+                    {
+                        "role":
+                            "user",
 
-            tools=tools,
+                        "content":
+                            prompt,
+                    }
+                ],
 
-            max_output_tokens=900,
+                tools=tools,
+
+                max_output_tokens=900,
+            )
         )
 
         st.session_state.ai_calls += 1
 
-        answer = getattr(
+        text = getattr(
             response,
             "output_text",
             ""
         )
 
-        if answer:
-            return answer
+        if text:
+            return text
 
         return (
-            "لم أستطع الحصول على إجابة من VerifyAI."
+            "لم أستطع الحصول على إجابة."
         )
 
     except Exception as error:
@@ -1521,72 +1962,37 @@ def ask_verifyai(
 
         return (
             "حدث خطأ أثناء تشغيل VerifyAI.\n\n"
-            f"التفاصيل التقنية: "
             f"{str(error)[:500]}"
         )
 
 
 # =========================================================
-# SHOULD AUTO SEARCH?
+# AUTO AI
 # =========================================================
-def needs_ai_web_search(
+def needs_ai(
     details,
     parking_results
 ):
 
-    # لا يوجد مبنى
     if not details:
         return True
 
-    has_useful_building_data = any(
+    useful = any(
         [
-            len(
-                details[
-                    "accessible_toilets"
-                ]
-            ) > 0,
-
-            len(
-                details[
-                    "elevators"
-                ]
-            ) > 0,
-
-            len(
-                details[
-                    "accessible_entrances"
-                ]
-            ) > 0,
-
-            len(
-                details[
-                    "ramps"
-                ]
-            ) > 0,
-
-            len(
-                details[
-                    "rooms"
-                ]
-            ) > 0,
-
-            len(
-                details[
-                    "levels"
-                ]
-            ) > 0,
+            details["accessible_toilets"],
+            details["elevators"],
+            details["accessible_entrances"],
+            details["ramps"],
+            details["rooms"],
+            details["levels"],
+            details["wheelchair_features"],
+            parking_results,
         ]
     )
 
-    if not has_useful_building_data:
-        return True
-
-    return False
+    return not useful
 
 
-# =========================================================
-# AUTO AI SEARCH
-# =========================================================
 def run_auto_ai(
     lat,
     lon,
@@ -1599,7 +2005,7 @@ def run_auto_ai(
 
     st.session_state.auto_ai_checked = True
 
-    if not AUTO_AI_WEB_SEARCH:
+    if not AUTO_AI_SEARCH:
         return
 
     if not ai_available():
@@ -1608,7 +2014,7 @@ def run_auto_ai(
     if ai_remaining() <= 0:
         return
 
-    if not needs_ai_web_search(
+    if not needs_ai(
         details,
         parking_results
     ):
@@ -1621,36 +2027,204 @@ def run_auto_ai(
         parking_results
     )
 
-    place_name = context.get(
-        "address",
-        "المكان المحدد"
-    )
-
     question = f"""
-أريد منك التحقق من معلومات إمكانية الوصول
-للمكان التالي:
+المعلومات المحلية عن هذا المكان ناقصة:
 
-{place_name}
+{context.get("location", "موقع غير معروف")}
 
-بيانات OpenStreetMap المحلية غير كافية.
+ابحث على الويب عن معلومات موثوقة
+حول إمكانية الوصول، وخصوصًا:
 
-ابحث عن معلومات موثوقة عن:
+• المدخل المهيأ
+• المصعد
+• الحمام المهيأ
+• موقف ذوي الهمم
+• المنحدرات
+• الوصول الداخلي
 
-1. مدخل مهيأ للكراسي المتحركة
-2. مصعد
-3. حمام مهيأ
-4. مواقف ذوي الهمم
-5. منحدرات
-6. إمكانية الوصول داخل المبنى
-
-إذا لم تجد دليلًا موثوقًا على أي نقطة،
-قل إنها غير مؤكدة.
+لا تخترع أي معلومة.
+إذا لم تجد معلومة مناسبة، قل إنها غير مؤكدة.
 """
 
     st.session_state.auto_ai_answer = ask_verifyai(
         question,
         context,
-        web_search=True
+        use_web=True
+    )
+
+
+# =========================================================
+# MAP MARKERS
+# =========================================================
+def building_marker(
+    map_object,
+    details
+):
+
+    building = details[
+        "building"
+    ]
+
+    lat, lon = building[
+        "center"
+    ]
+
+    name = get_name(
+        building["tags"],
+        "المبنى"
+    )
+
+    icon = """
+    <div style="
+        width:50px;
+        height:50px;
+        background:#7657ff;
+        border:5px solid white;
+        border-radius:50%;
+        box-shadow:0 4px 16px rgba(0,0,0,.35);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:26px;
+    ">
+        🏢
+    </div>
+    """
+
+    popup = f"""
+    <div style="
+        direction:rtl;
+        font-family:Arial;
+    ">
+
+        <b>
+            🏢 {html.escape(name)}
+        </b>
+
+        <hr>
+
+        🚪 مداخل مهيأة:
+        {len(details["accessible_entrances"])}
+
+        <br>
+
+        🛗 مصاعد:
+        {len(details["elevators"])}
+
+        <br>
+
+        🚻 حمامات مهيأة:
+        {len(details["accessible_toilets"])}
+
+        <br>
+
+        ♿ منحدرات:
+        {len(details["ramps"])}
+
+    </div>
+    """
+
+    folium.Marker(
+        [lat, lon],
+
+        tooltip=
+            "🏢 "
+            + name,
+
+        popup=folium.Popup(
+            popup,
+            max_width=320
+        ),
+
+        icon=folium.DivIcon(
+            html=icon
+        ),
+    ).add_to(
+        map_object
+    )
+
+
+def parking_marker(
+    map_object,
+    parking,
+    large=True
+):
+
+    lat, lon = parking[
+        "center"
+    ]
+
+    size = (
+        62
+        if large
+        else 48
+    )
+
+    font = (
+        31
+        if large
+        else 24
+    )
+
+    icon = f"""
+    <div style="
+        width:{size}px;
+        height:{size}px;
+        background:#087cff;
+        border:5px solid white;
+        border-radius:50%;
+        box-shadow:
+            0 0 0 7px rgba(8,124,255,.28),
+            0 5px 16px rgba(0,0,0,.35);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:{font}px;
+        color:white;
+    ">
+        ♿
+    </div>
+    """
+
+    popup = f"""
+    <div style="
+        direction:rtl;
+        font-family:Arial;
+        min-width:220px;
+    ">
+
+        <b>
+            🅿️ {html.escape(parking["name"])}
+        </b>
+
+        <hr>
+
+        ♿ {html.escape(parking["kind"])}
+
+        <br><br>
+
+        📏 {int(parking["distance"])} متر
+
+    </div>
+    """
+
+    folium.Marker(
+        [lat, lon],
+
+        tooltip=
+            "🅿️ ♿ "
+            + parking["name"],
+
+        popup=folium.Popup(
+            popup,
+            max_width=320
+        ),
+
+        icon=folium.DivIcon(
+            html=icon
+        ),
+    ).add_to(
+        map_object
     )
 
 
@@ -1675,6 +2249,7 @@ with st.sidebar:
 
     st.session_state.page = st.radio(
         "التنقل",
+
         [
             "🗺️ الخريطة",
             "🅿️ مواقف ذوي الهمم"
@@ -1706,8 +2281,7 @@ with st.sidebar:
         )
 
     st.caption(
-        "المصدر الأساسي للمعلومات: "
-        "OpenStreetMap"
+        "المصدر الأساسي: OpenStreetMap"
     )
 
 
@@ -1724,16 +2298,16 @@ if st.session_state.page == "🗺️ الخريطة":
     st.markdown(
         """
         <div class="subtitle">
-        اختر المكان أولًا، ثم اكتشف خدمات الوصول،
-        وإذا كانت المعلومات ناقصة يساعدك VerifyAI
-        في البحث عنها.
+        خريطة وصول ذكية تساعدك على معرفة جاهزية
+        المكان بالأدلة المتوفرة، مع AI للبحث
+        عندما تكون البيانات ناقصة.
         </div>
         """,
         unsafe_allow_html=True
     )
 
     # =====================================================
-    # SEARCH CARD
+    # SEARCH
     # =====================================================
     st.markdown(
         '<div class="card">',
@@ -1742,9 +2316,14 @@ if st.session_state.page == "🗺️ الخريطة":
 
     query = st.text_input(
         "🔎 اسم المكان أو البناية",
-        value=st.session_state.search_query,
-        placeholder="مثال: Red Sea Mall Jeddah",
-        key="place_search",
+
+        value=
+            st.session_state.search_query,
+
+        placeholder=
+            "مثال: Red Sea Mall Jeddah",
+
+        key="place_search"
     )
 
     c1, c2 = st.columns(2)
@@ -1759,7 +2338,9 @@ if st.session_state.page == "🗺️ الخريطة":
             st.session_state.search_query = query
 
             st.session_state.search_results = (
-                search_osm_places(query)
+                search_osm_places(
+                    query
+                )
             )
 
             st.session_state.search_index = 0
@@ -1767,7 +2348,7 @@ if st.session_state.page == "🗺️ الخريطة":
             if not st.session_state.search_results:
 
                 st.warning(
-                    "ما لقيت المكان في OpenStreetMap."
+                    "ما لقيت المكان."
                 )
 
     with c2:
@@ -1782,12 +2363,9 @@ if st.session_state.page == "🗺️ الخريطة":
     st.markdown(
         """
         <div class="hint">
-        ♿ الخدمات:
-        🚻 حمام مهيأ •
-        🛗 مصعد •
-        🚪 مدخل مهيأ •
-        🅿️ موقف ذوي الهمم •
-        🤖 بحث AI عند نقص البيانات
+        ♿ حمام • 🛗 مصعد • 🚪 مدخل •
+        🅿️ موقف • ♿ منحدر •
+        🤖 ذكاء اصطناعي • 📊 مؤشر وصول
         </div>
         """,
         unsafe_allow_html=True
@@ -1810,12 +2388,12 @@ if st.session_state.page == "🗺️ الخريطة":
         )
 
         labels = [
-            result.get(
+            item.get(
                 "display_name",
                 "موقع"
             )
 
-            for result
+            for item
             in st.session_state.search_results
         ]
 
@@ -1827,6 +2405,7 @@ if st.session_state.page == "🗺️ الخريطة":
         index = st.selectbox(
             "اختر النتيجة",
             range(len(labels)),
+
             index=index,
 
             format_func=lambda i:
@@ -1838,9 +2417,8 @@ if st.session_state.page == "🗺️ الخريطة":
         st.session_state.search_index = index
 
         chosen = (
-            st.session_state.search_results[
-                index
-            ]
+            st.session_state
+            .search_results[index]
         )
 
         chosen_lat = safe_float(
@@ -1853,8 +2431,10 @@ if st.session_state.page == "🗺️ الخريطة":
 
         if (
             chosen_lat is not None
-            and chosen_lon is not None
-            and st.button(
+            and
+            chosen_lon is not None
+            and
+            st.button(
                 "📍 استخدام هذا المكان",
                 use_container_width=True,
             )
@@ -1878,7 +2458,9 @@ if st.session_state.page == "🗺️ الخريطة":
     # =====================================================
     # MANUAL LOCATION
     # =====================================================
-    lat, lon = st.session_state.center
+    lat, lon = (
+        st.session_state.center
+    )
 
     if st.session_state.manual_mode:
 
@@ -1897,25 +2479,17 @@ if st.session_state.page == "🗺️ الخريطة":
             control_scale=True
         )
 
-        folium.Marker(
-            [lat, lon],
-            tooltip="المركز الحالي",
-            icon=folium.Icon(
-                color="blue",
-                icon="crosshairs"
-            )
-        ).add_to(manual_map)
-
         manual_result = st_folium(
             manual_map,
             width=None,
             height=500,
+
             key=(
-                "manual_main_"
+                "manual_"
                 + str(
                     st.session_state.map_key
                 )
-            ),
+            )
         )
 
         manual_result = (
@@ -1945,7 +2519,7 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # LOAD BUILDING
+    # BUILDING
     # =====================================================
     if (
         st.session_state.building_details
@@ -1953,7 +2527,7 @@ if st.session_state.page == "🗺️ الخريطة":
     ):
 
         with st.spinner(
-            "🔎 أبحث عن معلومات المكان..."
+            "🔎 أحلل المكان..."
         ):
 
             st.session_state.building_details = (
@@ -1980,16 +2554,27 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # AUTO AI SEARCH
+    # SCORE
+    # =====================================================
+    score_data = calculate_accessibility_score(
+        details,
+        nearby_parking
+    )
+
+    st.session_state.score_details = score_data
+
+
+    # =====================================================
+    # AUTO AI
     # =====================================================
     if (
         not st.session_state.auto_ai_checked
-        and AUTO_AI_WEB_SEARCH
+        and AUTO_AI_SEARCH
         and ai_available()
     ):
 
         with st.spinner(
-            "🤖 البيانات ناقصة — VerifyAI يبحث عن معلومات إضافية..."
+            "🤖 البيانات ناقصة — VerifyAI يبحث عن أدلة إضافية..."
         ):
 
             run_auto_ai(
@@ -2015,45 +2600,50 @@ if st.session_state.page == "🗺️ الخريطة":
     options = [
         (
             "overview",
-            "📋 نظرة عامة"
+            "📊 المؤشر"
         ),
+
         (
             "toilet",
-            "🚻 حمام ذوي الهمم"
+            "🚻 الحمام"
         ),
+
         (
             "elevator",
-            "🛗 مصعد"
+            "🛗 المصعد"
         ),
+
         (
             "entrance",
-            "🚪 مدخل مهيأ"
+            "🚪 المدخل"
         ),
+
         (
             "parking",
-            "🅿️ موقف ذوي الهمم"
+            "🅿️ المواقف"
         ),
+
         (
             "ai",
             "🤖 اسأل AI"
         ),
     ]
 
-    columns = st.columns(
+    cols = st.columns(
         len(options)
     )
 
-    for column, (key, label) in zip(
-        columns,
+    for col, (key, label) in zip(
+        cols,
         options
     ):
 
-        with column:
+        with col:
 
             if st.button(
                 label,
                 use_container_width=True,
-                key=f"service_{key}",
+                key=f"service_{key}"
             ):
 
                 st.session_state.service = key
@@ -2067,7 +2657,7 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # MAIN MAP
+    # MAP
     # =====================================================
     main_map = folium.Map(
         [lat, lon],
@@ -2082,8 +2672,9 @@ if st.session_state.page == "🗺️ الخريطة":
             color="blue",
             icon="search"
         )
-    ).add_to(main_map)
-
+    ).add_to(
+        main_map
+    )
 
     if details:
 
@@ -2093,36 +2684,43 @@ if st.session_state.page == "🗺️ الخريطة":
         )
 
         polygon = (
-            details["building"]
-            .get("polygon")
+            details[
+                "building"
+            ].get(
+                "polygon"
+            )
         )
 
         if polygon:
 
             folium.Polygon(
                 polygon,
+
                 color="#7657ff",
+
                 fill=True,
+
                 fill_color="#7657ff",
+
                 fill_opacity=.10,
+
                 weight=4
-            ).add_to(main_map)
+            ).add_to(
+                main_map
+            )
 
 
-    # =====================================================
-    # SERVICE MARKERS
-    # =====================================================
+    # service markers
     if (
         details
-        and st.session_state.service
+        and
+        st.session_state.service
         == "toilet"
     ):
 
         for item in details[
             "accessible_toilets"
         ]:
-
-            tags = item["tags"]
 
             folium.CircleMarker(
                 item["center"],
@@ -2134,24 +2732,28 @@ if st.session_state.page == "🗺️ الخريطة":
 
                 tooltip=(
                     "🚻 حمام مهيأ — "
-                    + floor_label(
-                        feature_level(tags)
+                    +
+                    floor_label(
+                        feature_level(
+                            item["tags"]
+                        )
                     )
                 ),
-            ).add_to(main_map)
+            ).add_to(
+                main_map
+            )
 
 
     elif (
         details
-        and st.session_state.service
+        and
+        st.session_state.service
         == "elevator"
     ):
 
         for item in details[
             "elevators"
         ]:
-
-            tags = item["tags"]
 
             folium.CircleMarker(
                 item["center"],
@@ -2163,16 +2765,22 @@ if st.session_state.page == "🗺️ الخريطة":
 
                 tooltip=(
                     "🛗 مصعد — "
-                    + floor_label(
-                        feature_level(tags)
+                    +
+                    floor_label(
+                        feature_level(
+                            item["tags"]
+                        )
                     )
                 ),
-            ).add_to(main_map)
+            ).add_to(
+                main_map
+            )
 
 
     elif (
         details
-        and st.session_state.service
+        and
+        st.session_state.service
         == "entrance"
     ):
 
@@ -2189,10 +2797,14 @@ if st.session_state.page == "🗺️ الخريطة":
                 fill_opacity=.95,
 
                 tooltip="🚪 مدخل مهيأ",
-            ).add_to(main_map)
+            ).add_to(
+                main_map
+            )
 
 
     elif (
+        details
+        and
         st.session_state.service
         == "parking"
     ):
@@ -2206,9 +2818,6 @@ if st.session_state.page == "🗺️ الخريطة":
             )
 
 
-    # =====================================================
-    # DISPLAY MAP
-    # =====================================================
     st.markdown(
         '<div class="card">',
         unsafe_allow_html=True
@@ -2218,12 +2827,13 @@ if st.session_state.page == "🗺️ الخريطة":
         main_map,
         width=None,
         height=620,
+
         key=(
             "main_map_"
             + str(
                 st.session_state.map_key
             )
-        ),
+        )
     )
 
     st.markdown(
@@ -2233,75 +2843,105 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # OVERVIEW
+    # ACCESSIBILITY SCORE
     # =====================================================
     if st.session_state.service == "overview":
 
         st.markdown(
-            '<div class="card">',
+            '<div class="score-card">',
             unsafe_allow_html=True
         )
 
-        if details:
+        st.markdown(
+            "### ♿ مؤشر الوصول الموثّق"
+        )
 
-            name = get_name(
-                details["building"]["tags"],
-                "المكان المحدد"
+        left, right = st.columns(
+            [1, 3]
+        )
+
+        with left:
+
+            st.markdown(
+                f"""
+                <div class="score-number">
+                {score_data["score"]}
+                </div>
+
+                <div class="score-label">
+                من 100
+                </div>
+                """,
+                unsafe_allow_html=True
             )
+
+        with right:
 
             st.markdown(
                 f"""
                 <span class="badge-purple">
-                🏢 {html.escape(name)}
+                {html.escape(score_data["level"])}
                 </span>
                 """,
                 unsafe_allow_html=True
             )
 
-            st.markdown(
-                "### الخدمات المسجلة"
+            st.write(
+                f"✅ عناصر مؤكدة: "
+                f"{score_data['confirmed']}"
             )
 
-            col1, col2, col3, col4 = st.columns(4)
+            st.write(
+                f"❓ عناصر غير مؤكدة: "
+                f"{score_data['unknown']}"
+            )
 
-            col1.metric(
-                "🚻 حمام مهيأ",
-                len(
-                    details[
-                        "accessible_toilets"
-                    ]
+        st.markdown(
+            """
+            <div class="hint">
+            هذا المؤشر يقيس كمية الأدلة المسجلة عن
+            الوصول الشامل، وليس شهادة رسمية بأن
+            المبنى مطابق لجميع المعايير.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            "### 🔎 كيف حصل المكان على الدرجة؟"
+        )
+
+        for item in score_data["items"]:
+
+            if item["status"] == "confirmed":
+
+                st.markdown(
+                    f"""
+                    <div class="score-good">
+                    <b>{item["name"]}</b>
+                    <br>
+                    +{item["points"]} نقطة
+                    <br>
+                    {html.escape(item["reason"])}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
                 )
-            )
 
-            col2.metric(
-                "🛗 مصاعد",
-                len(
-                    details["elevators"]
+            else:
+
+                st.markdown(
+                    f"""
+                    <div class="score-unknown">
+                    <b>{item["name"]}</b>
+                    <br>
+                    غير مؤكد
+                    <br>
+                    {html.escape(item["reason"])}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
                 )
-            )
-
-            col3.metric(
-                "🚪 مداخل مهيأة",
-                len(
-                    details[
-                        "accessible_entrances"
-                    ]
-                )
-            )
-
-            col4.metric(
-                "🪜 درج",
-                len(
-                    details["stairs"]
-                )
-            )
-
-        else:
-
-            st.info(
-                "لم أجد معلومات داخلية واضحة "
-                "لهذا الموقع."
-            )
 
         st.markdown(
             '</div>',
@@ -2325,7 +2965,8 @@ if st.session_state.page == "🗺️ الخريطة":
 
         if (
             details
-            and details[
+            and
+            details[
                 "accessible_toilets"
             ]
         ):
@@ -2335,8 +2976,9 @@ if st.session_state.page == "🗺️ الخريطة":
             ]:
 
                 st.success(
-                    "🚻 حمام مهيأ لذوي الهمم — "
-                    + floor_label(
+                    "🚻 حمام مهيأ — "
+                    +
+                    floor_label(
                         feature_level(
                             item["tags"]
                         )
@@ -2347,7 +2989,7 @@ if st.session_state.page == "🗺️ الخريطة":
 
             st.warning(
                 "لا توجد بيانات مؤكدة حاليًا "
-                "عن حمام مهيأ لهذا المكان."
+                "عن حمام مهيأ."
             )
 
         st.markdown(
@@ -2372,7 +3014,8 @@ if st.session_state.page == "🗺️ الخريطة":
 
         if (
             details
-            and details["elevators"]
+            and
+            details["elevators"]
         ):
 
             for item in details[
@@ -2381,7 +3024,8 @@ if st.session_state.page == "🗺️ الخريطة":
 
                 st.success(
                     "🛗 مصعد — "
-                    + floor_label(
+                    +
+                    floor_label(
                         feature_level(
                             item["tags"]
                         )
@@ -2391,8 +3035,7 @@ if st.session_state.page == "🗺️ الخريطة":
         else:
 
             st.info(
-                "لا توجد بيانات مصعد مسجلة "
-                "لهذا المكان."
+                "لا توجد بيانات مصعد مؤكدة."
             )
 
         st.markdown(
@@ -2417,7 +3060,8 @@ if st.session_state.page == "🗺️ الخريطة":
 
         if (
             details
-            and details[
+            and
+            details[
                 "accessible_entrances"
             ]
         ):
@@ -2465,72 +3109,39 @@ if st.session_state.page == "🗺️ الخريطة":
                     f"""
                     <div class="parking-card">
 
-                        <span class="badge-blue">
-                        ♿ موقف ذوي الهمم
-                        </span>
+                    <span class="badge-blue">
+                    ♿ موقف مسجل
+                    </span>
 
-                        <div style="
-                            font-size:18px;
-                            font-weight:800;
-                            color:#126ed8;
-                            margin-top:10px;
-                        ">
-                            🅿️
-                            {html.escape(
-                                parking["name"]
-                            )}
-                        </div>
+                    <div style="
+                        font-size:18px;
+                        font-weight:800;
+                        color:#126ed8;
+                        margin-top:10px;
+                    ">
+                    🅿️
+                    {html.escape(parking["name"])}
+                    </div>
 
-                        <div style="
-                            color:#555;
-                            margin-top:8px;
-                        ">
-                            {html.escape(
-                                parking["kind"]
-                            )}
-
-                            <br>
-
-                            📏
-                            {int(
-                                parking["distance"]
-                            )}
-                            متر
-                        </div>
+                    <div style="
+                        margin-top:8px;
+                        color:#555;
+                    ">
+                    {html.escape(parking["kind"])}
+                    <br>
+                    📏 {int(parking["distance"])} متر
+                    </div>
 
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
-                if st.button(
-                    "📍 اجعل هذا الموقف وجهتي",
-                    key=(
-                        "main_spot_"
-                        + str(
-                            parking["center"][0]
-                        )
-                        + "_"
-                        + str(
-                            parking["center"][1]
-                        )
-                    ),
-                    use_container_width=True,
-                ):
-
-                    st.session_state.destination_point = (
-                        parking["center"]
-                    )
-
-                    st.success(
-                        "تم اختيار الموقف كوجهة."
-                    )
-
         else:
 
             st.info(
                 "لا توجد إحداثيات لمواقف مهيأة "
-                "مسجلة حاليًا في OpenStreetMap."
+                "مسجلة حاليًا."
             )
 
         st.markdown(
@@ -2556,9 +3167,8 @@ if st.session_state.page == "🗺️ الخريطة":
             </div>
 
             <div class="small-muted">
-            اسأل عن إمكانية الوصول في المكان المحدد.
-            إذا كانت الخريطة لا تحتوي على المعلومة،
-            يستطيع VerifyAI محاولة البحث عنها على الويب.
+            إذا لم يجد الموقع بيانات كافية، يستطيع
+            VerifyAI البحث عن معلومات إضافية من الويب.
             </div>
             """,
             unsafe_allow_html=True
@@ -2567,8 +3177,7 @@ if st.session_state.page == "🗺️ الخريطة":
         if not ai_available():
 
             st.warning(
-                "الـAI غير متصل. "
-                "أضف OPENAI_API_KEY في Secrets."
+                "الـAI غير متصل."
             )
 
         else:
@@ -2580,33 +3189,27 @@ if st.session_state.page == "🗺️ الخريطة":
 
             question = st.text_area(
                 "💬 سؤالك",
-                value=st.session_state.ai_question,
-                placeholder=(
-                    "مثال:\n"
-                    "هل يوجد مصعد؟\n"
-                    "هل يوجد حمام لذوي الهمم؟\n"
-                    "هل للمبنى مدخل مناسب للكراسي؟\n"
-                    "هل يوجد موقف مخصص قريب؟"
-                ),
-                height=130,
-                key="ai_question_box",
+
+                value=
+                    st.session_state.ai_question,
+
+                placeholder=
+                    "مثال: هل يوجد مصعد في المكان؟",
+
+                height=120,
+
+                key="ai_question_box"
             )
 
             if st.button(
                 "🤖 اسأل VerifyAI",
-                use_container_width=True,
+                use_container_width=True
             ):
 
                 if not question.strip():
 
                     st.warning(
                         "اكتب سؤالك أولًا."
-                    )
-
-                elif ai_remaining() <= 0:
-
-                    st.error(
-                        "انتهت طلبات AI لهذه الجلسة."
                     )
 
                 else:
@@ -2625,17 +3228,15 @@ if st.session_state.page == "🗺️ الخريطة":
                         answer = ask_verifyai(
                             question,
                             context,
-                            web_search=True
+                            use_web=True
                         )
 
-                    st.session_state.ai_question = question
-                    st.session_state.ai_answer = answer
+                    st.session_state.ai_question = (
+                        question
+                    )
 
-                    st.session_state.ai_history.append(
-                        {
-                            "question": question,
-                            "answer": answer,
-                        }
+                    st.session_state.ai_answer = (
+                        answer
                     )
 
             if st.session_state.ai_answer:
@@ -2673,7 +3274,7 @@ if st.session_state.page == "🗺️ الخريطة":
         st.markdown(
             """
             <div class="ai-header">
-            🤖 معلومات إضافية وجدها VerifyAI
+            🤖 معلومات إضافية من VerifyAI
             </div>
             """,
             unsafe_allow_html=True
@@ -2694,8 +3295,8 @@ if st.session_state.page == "🗺️ الخريطة":
         )
 
         st.caption(
-            "هذه المعلومات مساعدة وليست ضمانًا "
-            "ميدانيًا لإمكانية الوصول."
+            "هذه المعلومات المساعدة لا تغيّر المؤشر "
+            "إلا عندما توجد بيانات خريطة موثقة."
         )
 
         st.markdown(
@@ -2716,33 +3317,35 @@ if st.session_state.page == "🗺️ الخريطة":
         "### 🧭 التنقل"
     )
 
-    r1, r2, r3 = st.columns(3)
+    a, b, c = st.columns(3)
 
-    with r1:
+    with a:
 
         if st.button(
             "🟢 اختر البداية",
-            use_container_width=True,
+            use_container_width=True
         ):
 
-            st.session_state.selection_mode = "start"
+            st.session_state.selection_mode = (
+                "start"
+            )
 
-    with r2:
+    with b:
 
         if st.button(
             "🔴 اختر الوجهة",
-            use_container_width=True,
+            use_container_width=True
         ):
 
             st.session_state.selection_mode = (
                 "destination"
             )
 
-    with r3:
+    with c:
 
         if st.button(
             "🗑️ مسح المسار",
-            use_container_width=True,
+            use_container_width=True
         ):
 
             st.session_state.start_point = None
@@ -2754,7 +3357,7 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # ROUTE POINT SELECTION MAP
+    # ROUTE SELECTION MAP
     # =====================================================
     if st.session_state.selection_mode:
 
@@ -2764,18 +3367,16 @@ if st.session_state.page == "🗺️ الخريطة":
         ):
 
             st.info(
-                "🟢 اضغط على الخريطة أدناه "
-                "لتحديد نقطة البداية."
+                "🟢 اضغط على الخريطة لتحديد البداية."
             )
 
         else:
 
             st.info(
-                "🔴 اضغط على الخريطة أدناه "
-                "لتحديد الوجهة."
+                "🔴 اضغط على الخريطة لتحديد الوجهة."
             )
 
-        route_select_map = folium.Map(
+        route_map = folium.Map(
             [lat, lon],
             zoom_start=15,
             control_scale=True
@@ -2791,7 +3392,7 @@ if st.session_state.page == "🗺️ الخريطة":
                     icon="play"
                 )
             ).add_to(
-                route_select_map
+                route_map
             )
 
         if st.session_state.destination_point:
@@ -2804,15 +3405,16 @@ if st.session_state.page == "🗺️ الخريطة":
                     icon="flag"
                 )
             ).add_to(
-                route_select_map
+                route_map
             )
 
-        route_click_result = st_folium(
-            route_select_map,
+        click_result = st_folium(
+            route_map,
             width=None,
             height=450,
+
             key=(
-                "route_select_"
+                "route_map_"
                 + str(
                     st.session_state.map_key
                 )
@@ -2820,15 +3422,15 @@ if st.session_state.page == "🗺️ الخريطة":
                 + str(
                     st.session_state.selection_mode
                 )
-            ),
+            )
         )
 
-        route_click_result = (
-            route_click_result
+        click_result = (
+            click_result
             or {}
         )
 
-        clicked = route_click_result.get(
+        clicked = click_result.get(
             "last_clicked"
         )
 
@@ -2844,11 +3446,15 @@ if st.session_state.page == "🗺️ الخريطة":
                 == "start"
             ):
 
-                st.session_state.start_point = point
+                st.session_state.start_point = (
+                    point
+                )
 
             else:
 
-                st.session_state.destination_point = point
+                st.session_state.destination_point = (
+                    point
+                )
 
             st.session_state.selection_mode = None
 
@@ -2856,66 +3462,77 @@ if st.session_state.page == "🗺️ الخريطة":
 
 
     # =====================================================
-    # ROUTE STATUS
+    # ROUTE CALCULATION
     # =====================================================
-    if st.session_state.start_point:
-
-        st.write(
-            "🟢 البداية: "
-            f"{st.session_state.start_point[0]:.5f}, "
-            f"{st.session_state.start_point[1]:.5f}"
-        )
-
-    if st.session_state.destination_point:
-
-        st.write(
-            "🔴 الوجهة: "
-            f"{st.session_state.destination_point[0]:.5f}, "
-            f"{st.session_state.destination_point[1]:.5f}"
-        )
-
-
     if (
         st.session_state.start_point
-        and st.session_state.destination_point
+        and
+        st.session_state.destination_point
     ):
 
         if st.button(
             "🚶 حساب المسار",
-            use_container_width=True,
+            use_container_width=True
         ):
 
-            with st.spinner(
-                "جاري حساب المسار..."
-            ):
+            start = (
+                st.session_state.start_point
+            )
 
-                routes = get_routes(
-                    st.session_state.start_point,
-                    st.session_state.destination_point,
+            destination = (
+                st.session_state.destination_point
+            )
+
+            try:
+
+                response = requests.get(
+                    f"{OSRM_URL}/"
+                    f"{start[1]},{start[0]};"
+                    f"{destination[1]},{destination[0]}",
+
+                    params={
+                        "overview":
+                            "full",
+
+                        "geometries":
+                            "geojson",
+
+                        "steps":
+                            "true",
+                    },
+
+                    headers=HEADERS,
+
+                    timeout=30,
                 )
 
-            if routes:
+                if response.ok:
 
-                st.session_state.route_result = (
-                    sorted(
-                        routes,
-                        key=route_score
-                    )[0]
-                )
+                    routes = response.json().get(
+                        "routes",
+                        []
+                    )
 
-            else:
+                    if routes:
+
+                        st.session_state.route_result = (
+                            routes[0]
+                        )
+
+                    else:
+
+                        st.session_state.route_result = None
+
+            except Exception:
 
                 st.session_state.route_result = None
 
-                st.warning(
-                    "لم أستطع حساب المسار."
-                )
 
-        route = (
-            st.session_state.route_result
-        )
+        if st.session_state.route_result:
 
-        if route:
+            route = (
+                st.session_state.route_result
+            )
 
             col1, col2 = st.columns(2)
 
@@ -2939,6 +3556,82 @@ if st.session_state.page == "🗺️ الخريطة":
                     )
                 )
 
+            geometry = (
+                route.get(
+                    "geometry",
+                    {}
+                )
+            )
+
+            coordinates = (
+                geometry.get(
+                    "coordinates",
+                    []
+                )
+            )
+
+            if coordinates:
+
+                route_points = [
+                    (
+                        coordinate[1],
+                        coordinate[0]
+                    )
+
+                    for coordinate
+                    in coordinates
+                ]
+
+                route_display = folium.Map(
+                    [lat, lon],
+                    zoom_start=15,
+                    control_scale=True
+                )
+
+                folium.PolyLine(
+                    route_points,
+                    weight=7,
+                    opacity=.8,
+                    color="#7657ff"
+                ).add_to(
+                    route_display
+                )
+
+                folium.Marker(
+                    st.session_state.start_point,
+                    tooltip="🟢 البداية",
+                    icon=folium.Icon(
+                        color="green",
+                        icon="play"
+                    )
+                ).add_to(
+                    route_display
+                )
+
+                folium.Marker(
+                    st.session_state.destination_point,
+                    tooltip="🔴 الوجهة",
+                    icon=folium.Icon(
+                        color="red",
+                        icon="flag"
+                    )
+                ).add_to(
+                    route_display
+                )
+
+                st_folium(
+                    route_display,
+                    width=None,
+                    height=500,
+
+                    key=(
+                        "route_display_"
+                        + str(
+                            st.session_state.map_key
+                        )
+                    )
+                )
+
     st.markdown(
         '</div>',
         unsafe_allow_html=True
@@ -2958,17 +3651,13 @@ else:
     st.markdown(
         """
         <div class="subtitle">
-        ابحث عن مكان، ثم اعرض المواقف المهيأة
-        المسجلة في OpenStreetMap.
+        اعثر على المواقف المخصصة لذوي الهمم
+        المسجلة على الخريطة.
         </div>
         """,
         unsafe_allow_html=True
     )
 
-
-    # =====================================================
-    # PARKING SEARCH
-    # =====================================================
     st.markdown(
         '<div class="card">',
         unsafe_allow_html=True
@@ -2976,18 +3665,23 @@ else:
 
     parking_query = st.text_input(
         "🔎 اسم المكان",
-        value=st.session_state.parking_query,
-        placeholder="مثال: Red Sea Mall Jeddah",
+
+        value=
+            st.session_state.parking_query,
+
+        placeholder=
+            "مثال: Red Sea Mall Jeddah",
+
         key="parking_search"
     )
 
-    p1, p2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with p1:
+    with c1:
 
         if st.button(
             "🔎 بحث بالاسم",
-            use_container_width=True,
+            use_container_width=True
         ):
 
             st.session_state.parking_query = (
@@ -3002,17 +3696,11 @@ else:
 
             st.session_state.parking_search_index = 0
 
-            if not st.session_state.parking_results_search:
-
-                st.warning(
-                    "ما لقيت المكان."
-                )
-
-    with p2:
+    with c2:
 
         if st.button(
             "📍 اختر الموقع يدويًا",
-            use_container_width=True,
+            use_container_width=True
         ):
 
             st.session_state.parking_manual_mode = True
@@ -3023,23 +3711,15 @@ else:
     )
 
 
-    # =====================================================
-    # PARKING SEARCH RESULTS
-    # =====================================================
     if st.session_state.parking_results_search:
 
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
-        )
-
         labels = [
-            result.get(
+            item.get(
                 "display_name",
                 "موقع"
             )
 
-            for result
+            for item
             in st.session_state.parking_results_search
         ]
 
@@ -3050,111 +3730,58 @@ else:
 
         index = st.selectbox(
             "اختر النتيجة",
+
             range(len(labels)),
+
             index=index,
+
             format_func=lambda i:
                 labels[i],
+
             key="parking_result"
         )
 
         st.session_state.parking_search_index = index
 
-        chosen = (
+        selected = (
             st.session_state
             .parking_results_search[index]
         )
 
-        parking_lat = safe_float(
-            chosen.get("lat")
+        selected_lat = safe_float(
+            selected.get("lat")
         )
 
-        parking_lon = safe_float(
-            chosen.get("lon")
+        selected_lon = safe_float(
+            selected.get("lon")
         )
 
         if (
-            parking_lat is not None
-            and parking_lon is not None
-            and st.button(
+            selected_lat is not None
+            and
+            selected_lon is not None
+            and
+            st.button(
                 "📍 استخدام هذا المكان",
-                use_container_width=True,
+                use_container_width=True
             )
         ):
 
             st.session_state.parking_center = (
-                parking_lat,
-                parking_lon
+                selected_lat,
+                selected_lon
             )
 
             st.session_state.parking_key = None
 
             st.rerun()
 
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
 
-
-    # =====================================================
-    # PARKING MANUAL LOCATION
-    # =====================================================
     plat, plon = (
         st.session_state.parking_center
     )
 
-    if st.session_state.parking_manual_mode:
 
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
-        )
-
-        parking_manual_map = folium.Map(
-            [plat, plon],
-            zoom_start=15,
-            control_scale=True
-        )
-
-        result = st_folium(
-            parking_manual_map,
-            width=None,
-            height=500,
-            key=(
-                "parking_manual_"
-                + str(
-                    st.session_state.map_key
-                )
-            ),
-        )
-
-        result = result or {}
-
-        clicked = result.get(
-            "last_clicked"
-        )
-
-        if clicked:
-
-            st.session_state.parking_center = (
-                clicked["lat"],
-                clicked["lng"]
-            )
-
-            st.session_state.parking_manual_mode = False
-            st.session_state.parking_key = None
-
-            st.rerun()
-
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-
-    # =====================================================
-    # RADIUS
-    # =====================================================
     radius_options = [
         500,
         1000,
@@ -3163,8 +3790,9 @@ else:
         5000
     ]
 
-    parking_radius = st.selectbox(
+    radius = st.selectbox(
         "📏 نطاق البحث",
+
         radius_options,
 
         index=radius_options.index(
@@ -3175,22 +3803,16 @@ else:
             f"{x:,} متر"
     )
 
-    if (
-        parking_radius
-        != st.session_state.parking_radius
-    ):
+    if radius != st.session_state.parking_radius:
 
-        st.session_state.parking_radius = (
-            parking_radius
-        )
-
+        st.session_state.parking_radius = radius
         st.session_state.parking_key = None
 
 
     parking_key = (
         round(plat, 5),
         round(plon, 5),
-        parking_radius
+        radius
     )
 
 
@@ -3207,23 +3829,18 @@ else:
                 get_accessible_parking(
                     plat,
                     plon,
-                    parking_radius
+                    radius
                 )
             )
 
-        st.session_state.parking_key = (
-            parking_key
-        )
+        st.session_state.parking_key = parking_key
 
 
-    parking_spots = (
+    spots = (
         st.session_state.parking_results
     )
 
 
-    # =====================================================
-    # PARKING MAP
-    # =====================================================
     parking_map = folium.Map(
         [plat, plon],
         zoom_start=14,
@@ -3237,17 +3854,21 @@ else:
             color="blue",
             icon="search"
         )
-    ).add_to(parking_map)
+    ).add_to(
+        parking_map
+    )
 
     folium.Circle(
         [plat, plon],
-        radius=parking_radius,
+        radius=radius,
         color="#087cff",
         fill=True,
         fill_opacity=.04
-    ).add_to(parking_map)
+    ).add_to(
+        parking_map
+    )
 
-    for parking in parking_spots:
+    for parking in spots:
 
         parking_marker(
             parking_map,
@@ -3265,12 +3886,13 @@ else:
         parking_map,
         width=None,
         height=650,
+
         key=(
-            "parking_main_"
+            "parking_map_"
             + str(
                 st.session_state.map_key
             )
-        ),
+        )
     )
 
     st.markdown(
@@ -3280,55 +3902,42 @@ else:
 
 
     st.markdown(
-        f"### 🅿️ تم العثور على {len(parking_spots)} موقفًا مسجلًا"
+        f"### 🅿️ تم العثور على {len(spots)} موقفًا مسجلًا"
     )
 
 
-    # =====================================================
-    # PARKING LIST
-    # =====================================================
-    if parking_spots:
+    if spots:
 
         for i, parking in enumerate(
-            parking_spots
+            spots
         ):
 
             st.markdown(
                 f"""
                 <div class="parking-card">
 
-                    <span class="badge-blue">
-                    ♿ موقف مسجل
-                    </span>
+                <span class="badge-blue">
+                ♿ موقف مسجل
+                </span>
 
-                    <div style="
-                        font-size:19px;
-                        font-weight:800;
-                        color:#126ed8;
-                        margin-top:10px;
-                    ">
-                        🅿️
-                        {html.escape(
-                            parking["name"]
-                        )}
-                    </div>
+                <div style="
+                    font-size:19px;
+                    font-weight:800;
+                    color:#126ed8;
+                    margin-top:10px;
+                ">
+                🅿️
+                {html.escape(parking["name"])}
+                </div>
 
-                    <div style="
-                        margin-top:8px;
-                        color:#555;
-                    ">
-                        {html.escape(
-                            parking["kind"]
-                        )}
-
-                        <br>
-
-                        📏
-                        {int(
-                            parking["distance"]
-                        )}
-                        متر
-                    </div>
+                <div style="
+                    margin-top:8px;
+                    color:#555;
+                ">
+                {html.escape(parking["kind"])}
+                <br>
+                📏 {int(parking["distance"])} متر
+                </div>
 
                 </div>
                 """,
@@ -3338,7 +3947,7 @@ else:
             if st.button(
                 "📍 استخدم هذا الموقف كوجهة",
                 key=f"parking_use_{i}",
-                use_container_width=True,
+                use_container_width=True
             ):
 
                 st.session_state.destination_point = (
@@ -3353,19 +3962,13 @@ else:
                     "🗺️ الخريطة"
                 )
 
-                st.success(
-                    "تم اختيار الموقف كوجهة."
-                )
-
                 st.rerun()
 
     else:
 
         st.info(
             "لا توجد إحداثيات لمواقف مهيأة "
-            "مسجلة ضمن النطاق. هذا لا يعني "
-            "بالضرورة عدم وجود المواقف؛ قد تكون "
-            "غير مسجلة في OpenStreetMap."
+            "ضمن نطاق البحث."
         )
 
 
@@ -3375,7 +3978,7 @@ else:
 st.markdown(
     """
     <div class="footer">
-    VerifyAI Access • Inclusive AI Navigation
+    VerifyAI Access • Inclusive AI Navigation • Evidence-Based Accessibility
     </div>
     """,
     unsafe_allow_html=True
